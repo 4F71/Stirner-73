@@ -155,21 +155,56 @@ def debug(prompt: str, model: str, confirm_writes: bool, no_network: bool, ctx: 
 @click.option("--model", default=DEFAULT_CODER_MODEL, show_default=True)
 @click.option("--no-network", is_flag=True, help="Air-gapped mod: web araclarini kapat, sadece localhost'a izin ver.")
 @click.option("--ctx", type=int, default=None, help="Ollama num_ctx override (varsayilan: model registry/DEFAULT_NUM_CTX).")
-def explain(prompt: str, model: str, no_network: bool, ctx: int | None):
+@click.option("--interactive", is_flag=True, help="Gercek diyalog dongusu: model soru sorar, siz cevap verirsiniz (/exit ile cikis).")
+def explain(prompt: str, model: str, no_network: bool, ctx: int | None, interactive: bool):
     """Kodu dogrudan aciklamak yerine, kullaniciyi rehber sorularla kendi cikarimina yonlendirir.
 
-    Ornek: free explain "agents/core.py'daki run_agent_loop'u inceleyelim"
-    Tek-seferlik CLI komutu oldugu icin gercek diyalog icin 'free shell' icinde
-    '/model' ile coder modelini sabitleyip mode='socratic' ile devam etmek daha uygundur;
-    bu komut Sokratik modun ilk soru turunu baslatir.
+    --interactive ile gercek bir soru-cevap dongusu baslar; /exit yazana kadar devam eder.
     """
     agent_config.no_network = no_network
     agent_config.ctx_override = ctx
-    agent = CoderAgent(model=model)
-    try:
-        print_result(agent.run(prompt, mode="socratic"))
-    except KeyboardInterrupt:
-        click.echo("\n[free] durduruldu.")
+
+    if not interactive:
+        agent = CoderAgent(model=model)
+        try:
+            print_result(agent.run(prompt, mode="socratic"))
+        except KeyboardInterrupt:
+            click.echo("\n[free] durduruldu.")
+        return
+
+    # --interactive: Sokratik diyalog dongusu
+    from agents.coder import SOCRATIC_SYSTEM_PROMPT, SOCRATIC_TOOLS_SCHEMA, SOCRATIC_TOOL_EXECUTOR
+    client = OllamaClient()
+    manager = ModelManager(client)
+    manager.ensure_loaded(model)
+
+    messages = [
+        {"role": "system", "content": SOCRATIC_SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+    console.print("[dim]Sokratik diyalog başladı. Çıkmak için /exit yazın.[/]\n")
+    while True:
+        try:
+            run_agent_loop(
+                client, model, messages,
+                tools_schema=SOCRATIC_TOOLS_SCHEMA,
+                tool_executor=SOCRATIC_TOOL_EXECUTOR,
+            )
+        except KeyboardInterrupt:
+            click.echo("\n[free] durduruldu.")
+            break
+
+        try:
+            user_input = click.prompt("❯", prompt_suffix=" ")
+        except (KeyboardInterrupt, click.exceptions.Abort):
+            click.echo("\n[free] durduruldu.")
+            break
+
+        if user_input.strip().lower() in ("/exit", "exit"):
+            break
+
+        # Bir sonraki tura kullanicinin cevabini ekle
+        messages.append({"role": "user", "content": user_input})
 
 
 @free.command()
@@ -593,6 +628,8 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
         return
 
     messages = [{"role": "system", "content": CODE_SYSTEM_PROMPT}]
+    # Her tur taze base_system üzerine hafıza eklenir; buradan başlar.
+    base_system = CODE_SYSTEM_PROMPT
 
     # RAG index yasini kontrol et ve gerekirse uyard
     _warn_rag_index_age()
@@ -921,39 +958,47 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
                 else:
                     target_model = DEFAULT_CODER_MODEL
         
+        _model_load_failed = False
         if target_model != model:
             console.print(f"[dim]🔄 Ajan değiştiriliyor: {intent.upper()} ({target_model})[/]")
             try:
                 manager.ensure_loaded(target_model)
                 model = target_model
             except Exception as e:
-                console.print(f"[bold red]Model yüklenemedi:[/] {e}")
-                
-        # Swap system prompt + tool set based on current model
-        if model == DEFAULT_CODEBASE_MODEL and not pinned_model:
-            messages[0] = {"role": "system", "content": CODEBASE_SYSTEM_PROMPT}
-            tools_schema = RESEARCH_TOOLS_SCHEMA + GIT_TOOLS_SCHEMA
-            tool_executor = {**RESEARCH_TOOL_EXECUTOR, **GIT_TOOL_EXECUTOR}
-        elif model == DEFAULT_RESEARCH_MODEL and not pinned_model:
-            messages[0] = {"role": "system", "content": RESEARCH_SYSTEM_PROMPT}
-            tools_schema, tool_executor = RESEARCH_TOOLS_SCHEMA, RESEARCH_TOOL_EXECUTOR
-        elif model == DEFAULT_VISION_MODEL and not pinned_model:
-            messages[0] = {"role": "system", "content": VISION_SYSTEM_PROMPT}
-            tools_schema, tool_executor = VISION_TOOLS_SCHEMA, VISION_TOOL_EXECUTOR
-        elif debug_mode:
-            messages[0] = {"role": "system", "content": DEBUG_SYSTEM_PROMPT}
-            tools_schema, tool_executor = CODER_TOOLS_SCHEMA, CODER_TOOL_EXECUTOR
-        elif socratic_mode:
-            messages[0] = {"role": "system", "content": SOCRATIC_SYSTEM_PROMPT}
-            tools_schema, tool_executor = SOCRATIC_TOOLS_SCHEMA, SOCRATIC_TOOL_EXECUTOR
-        else:
-            messages[0] = {"role": "system", "content": CODE_SYSTEM_PROMPT}
-            tools_schema, tool_executor = CODER_TOOLS_SCHEMA, CODER_TOOL_EXECUTOR
+                console.print(
+                    f"[bold red]Model yüklenemedi:[/] {e}\n"
+                    f"[dim]Önceki model ile devam ediliyor: {model}[/]"
+                )
+                _model_load_failed = True
 
-        base_system = messages[0]["content"]
+        # Swap system prompt + tool set based on current model.
+        # Yükleme başarısız olursa eski model + eski schema ile devam et —
+        # karışık model/schema kombinasyonu oluşmasın.
+        if not _model_load_failed:
+            if model == DEFAULT_CODEBASE_MODEL and not pinned_model:
+                base_system = CODEBASE_SYSTEM_PROMPT
+                tools_schema = RESEARCH_TOOLS_SCHEMA + GIT_TOOLS_SCHEMA
+                tool_executor = {**RESEARCH_TOOL_EXECUTOR, **GIT_TOOL_EXECUTOR}
+            elif model == DEFAULT_RESEARCH_MODEL and not pinned_model:
+                base_system = RESEARCH_SYSTEM_PROMPT
+                tools_schema, tool_executor = RESEARCH_TOOLS_SCHEMA, RESEARCH_TOOL_EXECUTOR
+            elif model == DEFAULT_VISION_MODEL and not pinned_model:
+                base_system = VISION_SYSTEM_PROMPT
+                tools_schema, tool_executor = VISION_TOOLS_SCHEMA, VISION_TOOL_EXECUTOR
+            elif debug_mode:
+                base_system = DEBUG_SYSTEM_PROMPT
+                tools_schema, tool_executor = CODER_TOOLS_SCHEMA, CODER_TOOL_EXECUTOR
+            elif socratic_mode:
+                base_system = SOCRATIC_SYSTEM_PROMPT
+                tools_schema, tool_executor = SOCRATIC_TOOLS_SCHEMA, SOCRATIC_TOOL_EXECUTOR
+            else:
+                base_system = CODE_SYSTEM_PROMPT
+                tools_schema, tool_executor = CODER_TOOLS_SCHEMA, CODER_TOOL_EXECUTOR
+
+        # Hafiza bloğunu her tur taze base_system üzerine yaz —
+        # bir önceki turun hafızalı versiyonunu base alırsa birikir.
         mem = _memory_context()
-        if mem:
-            messages[0] = {"role": "system", "content": base_system + mem}
+        messages[0] = {"role": "system", "content": base_system + mem if mem else base_system}
 
         try:
             result = run_agent_loop(

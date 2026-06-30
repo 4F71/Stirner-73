@@ -274,9 +274,20 @@ def run_agent_loop(
         tools_schema = [t for t in tools_schema if t.get("function", {}).get("name") not in blocked]
         tool_executor = {k: v for k, v in tool_executor.items() if k not in blocked}
 
-    options = options or {"temperature": 0.3, "repeat_penalty": 1.2, "top_p": 0.9}
+    options = options or {
+        "temperature": 0.3,
+        "repeat_penalty": 1.2,
+        "top_p": 0.9,
+        # RTX 4070 (Ampere): tüm katmanlari VRAM'e pin'le, CPU offload gizli gecikme ekler.
+        "num_gpu_layers": 999,
+        # Flash Attention — Ampere destekliyor; aynı VRAM'de daha uzun context veya
+        # daha hızlı inference. Ollama 0.1.29+ gerektirir.
+        "flash_attn": True,
+    }
     options.setdefault("num_ctx", _num_ctx_for(model))
-    history = messages
+    # Shallow copy: run_agent_loop kendi tur mesajlarini eklese de
+    # caller'in orijinal listesini (orn. council turlarini) kirletmez.
+    history = list(messages)
 
     for turn in range(max_turns):
         t0 = time.time()

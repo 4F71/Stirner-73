@@ -702,7 +702,54 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
 
     placeholder = HTML('<style fg="#5f5f5f">Bana ne yaptırmak istersin? · yardım için "?"</style>')
 
-    session = PromptSession(key_bindings=kb, history=FileHistory(HISTORY_PATH))
+    from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+    from prompt_toolkit.completion import Completer, Completion
+
+    _CMD_MAP = {
+        "/exit":     "Çıkış — oturum özeti hafızaya kaydedilir",
+        "/clear":    "Konuşma geçmişini sıfırla",
+        "/save":     "Oturumu JSON olarak kaydet",
+        "/load":     "Kaydedilmiş oturumu yükle",
+        "/debug":    "Hata ayıklama modunu aç/kapat",
+        "/socratic": "Sokratik öğrenme modunu aç/kapat",
+        "/verbose":  "Thinking log aç/kapat (F2)",
+        "/confirm":  "write/edit öncesi onay iste",
+        "/airgap":   "Air-gapped mod — sadece localhost",
+        "/model":    "Modeli sabitle  (/model clear ile bırak)",
+        "/models":   "Çekili modelleri listele",
+        "/ctx":      "num_ctx override  (/ctx reset ile sıfırla)",
+        "/status":   "Aktif shell modelini göster",
+        "/remember": "Karar/not kaydet",
+        "/memory":   "Son N kaydı listele veya metin ile ara",
+        "/audit":    "Denetim izini göster veya doğrula",
+        "/rollback": "Son N write/edit işlemini geri al",
+        "/index":    "RAG indeksini güncelle",
+        "/look":     "Ekran görüntüsü al → VisionAgent",
+        "/doctor":   "VRAM/RAM kullanımını ölç",
+        "/stats":    "Token/s performans özeti",
+        "/log":      "Son N log satırı",
+    }
+
+    class _ShellCompleter(Completer):
+        def get_completions(self, document, complete_event):
+            text = document.text_before_cursor
+            if not text.startswith("/"):
+                return
+            for cmd, desc in _CMD_MAP.items():
+                if cmd.startswith(text):
+                    yield Completion(
+                        cmd,
+                        start_position=-len(text),
+                        display_meta=desc,
+                    )
+
+    session = PromptSession(
+        key_bindings=kb,
+        history=FileHistory(HISTORY_PATH),
+        auto_suggest=AutoSuggestFromHistory(),
+        completer=_ShellCompleter(),
+        complete_while_typing=True,
+    )
     print_splash()
     pinned_model = None
     socratic_mode = False
@@ -885,14 +932,20 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
             console.print(perf_stats(arg))
             continue
         elif prompt == "/status":
+            if pinned_model:
+                pin_label = " [bold yellow][sabitlendi][/]"
+            else:
+                pin_label = " [dim][varsayılan — router değiştirebilir][/]"
+            console.print(f"[bold cyan]Shell modeli:[/] {model}{pin_label}")
             try:
                 loaded = client.list_loaded()
                 if not loaded:
-                    console.print("[dim]Yüklü model yok.[/]")
+                    console.print("[dim]VRAM'de aktif model yok (idle timeout ile boşaltılmış olabilir).[/]")
                 else:
+                    console.print("[dim]VRAM'de yüklü:[/]")
                     for entry in loaded:
                         name = entry.get("name") or entry.get("model") or "?"
-                        console.print(f"[dim]🔄 {name}[/]")
+                        console.print(f"[dim]  🔄 {name}[/]")
             except Exception as e:
                 console.print(f"[dim]Ollama'ya ulaşılamadı: {e}[/]")
             continue
@@ -957,7 +1010,7 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
             except Exception as e:
                 console.print(f"[bold red]Model yuklenemedi:[/] {e}")
             continue
-        elif prompt == "?":
+        elif prompt in ("?", "/"):
             _ht = Table(show_header=True, header_style="bold cyan", box=None, padding=(0, 2))
             _ht.add_column("Komut", style="bold")
             _ht.add_column("Açıklama", style="dim")
@@ -1028,6 +1081,10 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
             if pinned_model:
                 intent = "pinned"
                 target_model = pinned_model
+            elif debug_mode or socratic_mode:
+                # Bu modlarda router atlanır — özel system prompt zaten aktif.
+                intent = "debug" if debug_mode else "socratic"
+                target_model = DEFAULT_CODER_MODEL
             else:
                 intent = _keyword_route(prompt) or route_prompt(client, model, prompt)
                 if intent == "codebase":

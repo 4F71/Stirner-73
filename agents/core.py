@@ -53,7 +53,7 @@ MODEL_VRAM_ESTIMATES_GB = {
     "mistral-nemo": 7.1,
 }
 
-DEFAULT_CODER_MODEL = "hf.co/yuxinlu1/gemma-4-12B-coder-fable5-composer2.5-v1-GGUF:Q3_K_M"
+DEFAULT_CODER_MODEL = "hf.co/huihui-ai/Qwen2.5-Coder-7B-Instruct-abliterated-GGUF:Q6_K"
 DEFAULT_RESEARCH_MODEL = "hermes3:8b"
 DEFAULT_VISION_MODEL = "qwen3-vl:8b"
 # search_codebase (RAG) sentezinde hermes3/qwen2.5-coder denemelerinden daha iyi sonuc verdi
@@ -288,15 +288,31 @@ def run_agent_loop(
     # Shallow copy: run_agent_loop kendi tur mesajlarini eklese de
     # caller'in orijinal listesini (orn. council turlarini) kirletmez.
     history = list(messages)
+    # Tekrar eden tool çağrılarını tespit etmek için: (name, frozen_args) → kaç kez
+    _tool_repeat: dict[tuple, int] = {}
+    _MAX_TOOL_REPEAT = 2  # Aynı araç+arg ikilisi bu kadar tekrar ederse kes
 
     for turn in range(max_turns):
         t0 = time.time()
-        if config.verbose:
-            console.print(f"[dim]\u2500\u2500 TUR {turn+1}/{max_turns} | model={model} | mesaj_sayısı={len(history)} \u2500\u2500[/]")
-            response = client.chat_stream(model, history, options=options)
-        else:
-            with console.status(f"[bold cyan]{model} düşünüyor...[/]"):
-                response = client.chat(model, history, options=options)
+        try:
+            if config.verbose:
+                console.print(f"[dim]\u2500\u2500 TUR {turn+1}/{max_turns} | model={model} | mesaj_sayısı={len(history)} \u2500\u2500[/]")
+                response = client.chat_stream(model, history, options=options)
+            else:
+                with console.status(f"[bold cyan]{model} düşünüyor...[/]"):
+                    response = client.chat(model, history, options=options)
+        except Exception as _http_exc:
+            err = str(_http_exc)
+            # 500: Ollama model crash'i (genellikle OOM). CLI çökmemeli.
+            if "500" in err:
+                console.print(
+                    f"[bold red]❌ Ollama 500 hatası — model çökmüş olabilir (VRAM yetersiz?).[/]\n"
+                    f"[dim]Öneri: /model ile farklı bir model seç veya /ctx ile context penceresini küçült.[/]"
+                )
+            else:
+                console.print(f"[bold red]❌ Ollama bağlantı hatası: {err}[/]")
+            logger.error("ollama_request_failed model=%s error=%s", model, err)
+            return f"ERROR: Ollama isteği başarısız — {err}"
         
         elapsed = time.time() - t0
 
@@ -397,10 +413,34 @@ def run_agent_loop(
             else:
                 args = raw_args
 
+            # Tekrar döngüsü tespiti
+            try:
+                _repeat_key = (name, str(sorted(args.items()) if isinstance(args, dict) else args))
+            except Exception:
+                _repeat_key = (name, str(args))
+            _tool_repeat[_repeat_key] = _tool_repeat.get(_repeat_key, 0) + 1
+            if _tool_repeat[_repeat_key] > _MAX_TOOL_REPEAT:
+                logger.warning("tool_loop_detected name=%s, aborting turn", name)
+                history.append({
+                    "role": "user",
+                    "content": (
+                        f"[SİSTEM UYARISI]: '{name}' aracini ayni argümanlarla {_tool_repeat[_repeat_key]} kez "
+                        "çağırdın, sonuç değişmiyor. Farklı bir araç dene veya mevcut bilgiyle sonuca ulaş."
+                    ),
+                })
+                break
+
             logger.info("tool_call name=%s args=%s", name, args)
             if config.audit_enabled:
                 append_event("tool_call", {"name": name, "args": args})
-            console.print(f"[dim]⚙️  Çalıştırılıyor: {name}({args})...[/]")
+            if name in ("write_file", "edit_file") and "path" in args:
+                from tools.file_ops import WORKSPACE_ROOT
+                import os as _os
+                full_path = _os.path.join(WORKSPACE_ROOT, args["path"])
+                console.print(f"[dim]⚙️  Çalıştırılıyor: {name}({args})...[/]")
+                console.print(f"[dim]📄 Dosya: {full_path}[/]")
+            else:
+                console.print(f"[dim]⚙️  Çalıştırılıyor: {name}({args})...[/]")
 
             if name in ("write_file", "edit_file") and config.confirm_writes:
                 from rich.prompt import Confirm

@@ -105,6 +105,8 @@ def print_banner():
     _print_info_line()
 
 def print_result(text: str):
+    if not text or not text.strip():
+        return
     console.print(Markdown(text))
     console.print()
 
@@ -441,17 +443,22 @@ CODEBASE_SYSTEM_PROMPT = (
 _RESEARCH_KEYWORDS = {
     "araştır", "nedir", "ne demek", "açıkla", "anlat", "tarih", "fizik",
     "matematik", "wikipedia", "haber", "güncel", "dünya", "http", "https",
-    "web", "internet", "arama",
+    "web", "internet", "arama", "domain", "whois", "öğren", "karşılaştır",
+    "fark nedir", "ne zaman", "kim", "neden", "nasıl", "türkçe anlat",
 }
 _CODE_KEYWORDS = {
     "yaz", "oluştur", "ekle", "düzelt", "fix", "implement", "refactor",
     "sil", "taşı", "rename", "test", "debug", "hata", "bug", "çalıştır",
-    "kodu", "fonksiyon", "class", "dosya", "script",
+    "kodu", "fonksiyon", "class", "dosya", "script", "güncelle",
+    "dönüştür", "optimize", "temizle", "yeniden", "şablon", "modül",
+    "import", "export", "parse", "generate", "döngü", "koşul",
 }
 _CODEBASE_KEYWORDS = {
     "nerede", "nasıl çalış", "ne yapıyor", "incele", "açıkla bu", "commit",
     "mimari", "yapı", "bu proje", "bu repo", "stirner", "agent", "araç",
-    "neden böyle", "nasıl implement",
+    "neden böyle", "nasıl implement", "hangi dosya", "hangi fonksiyon",
+    "kodu göster", "kod nerede", "nereden geliyor", "ne döndür",
+    "nasıl kullan", "örnek ver", "bağımlılık", "çağrı zinciri",
 }
 
 
@@ -538,6 +545,17 @@ def _parse_session(raw: str) -> list[dict]:
     return loaded_msgs
 
 
+DEFAULT_ROUTER_MODEL = "qwen2.5:1.5b"
+
+_ROUTER_FEW_SHOT = """Examples:
+{"prompt": "şu fonksiyonu düzelt", "intent": "code"}
+{"prompt": "fix this bug in main.py", "intent": "code"}
+{"prompt": "bu proje nasıl çalışıyor", "intent": "codebase"}
+{"prompt": "where is the router implemented", "intent": "codebase"}
+{"prompt": "transformer nedir", "intent": "research"}
+{"prompt": "what is a neural network", "intent": "research"}"""
+
+
 def route_prompt(client: OllamaClient, current_model: str, user_prompt: str) -> str:
     sys_msg = (
         "You are a strict intent classifier. Return ONLY a valid JSON object with a single key 'intent', "
@@ -549,8 +567,8 @@ def route_prompt(client: OllamaClient, current_model: str, user_prompt: str) -> 
         "(how an existing function/class/file in this repo works, where something is implemented, architecture "
         "questions about this project), intent is 'codebase'. "
         "If the user wants general information, web research, or abstract explanations unrelated to this "
-        "project's own source code (like physics, history, current events), intent is 'research'. "
-        "Example output: {\"intent\": \"code\"}, {\"intent\": \"codebase\"}, or {\"intent\": \"research\"}"
+        "project's own source code (like physics, history, current events), intent is 'research'.\n"
+        + _ROUTER_FEW_SHOT
     )
     messages = [
         {"role": "system", "content": sys_msg},
@@ -559,12 +577,13 @@ def route_prompt(client: OllamaClient, current_model: str, user_prompt: str) -> 
     try:
         options = {"temperature": 0.0}
         with console.status("[dim]Yönlendiriliyor (Router)...[/]"):
-            response = client.chat(current_model, messages, format="json", options=options)
+            response = client.chat(DEFAULT_ROUTER_MODEL, messages, format="json", options=options)
             content = response.get("message", {}).get("content", "{}")
             parsed = json.loads(content)
             return parsed.get("intent", "code").lower()
     except Exception as exc:
-        # Fallback to code
+        logger.debug("router failed, falling back to 'code': %s", exc)
+        console.print("[dim]⚡ Router yanıt veremedi → code modu (fallback)[/]")
         return "code"
 
 def capture_snipping_tool(save_path: str) -> bool:
@@ -628,6 +647,9 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
         return
 
     messages = [{"role": "system", "content": CODE_SYSTEM_PROMPT}]
+    # /remember ile eklenen notlar base_system değiştiğinde kaybolmasın diye
+    # ayrı tutulur ve her tur base_system + hafıza + notlar birleştirilerek yazılır.
+    remembered_notes: list[str] = []
     # Her tur taze base_system üzerine hafıza eklenir; buradan başlar.
     base_system = CODE_SYSTEM_PROMPT
 
@@ -670,6 +692,9 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
         recent = recall(n=5)
         if "bos" in recent or "bulunamadi" in recent:
             return ""
+        # Context taşmasını önlemek için hafıza bloğunu 800 karakterle sınırla.
+        if len(recent) > 800:
+            recent = recent[:800] + "\n... (hafıza kirpildi)"
         return "\n\nBu projede daha once alinan bazi kararlar:\n" + recent
 
     def _auto_remember_session() -> None:
@@ -678,8 +703,9 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
         summarize_and_remember(client, model, messages, max_history=MAX_HISTORY_MESSAGES)
 
     while True:
+        _mode_tag = " [debug]" if debug_mode else (" [socratic]" if socratic_mode else "")
         try:
-            prompt = session.prompt("❯ ", bottom_toolbar=bottom_toolbar, placeholder=placeholder)
+            prompt = session.prompt(f"❯{_mode_tag} ", bottom_toolbar=bottom_toolbar, placeholder=placeholder)
         except (KeyboardInterrupt, EOFError):
             _auto_remember_session()
             break
@@ -697,6 +723,7 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
             messages[:] = [{"role": "system", "content": CODE_SYSTEM_PROMPT}]
             socratic_mode = False
             debug_mode = False
+            remembered_notes.clear()
             console.print("[dim]Konuşma geçmişi sıfırlandı.[/]")
             continue
         elif prompt == "/verbose":
@@ -749,19 +776,25 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
                 console.print("[dim]Kullanim: /remember <kaydedilecek karar/not>[/]")
             else:
                 console.print(f"[dim]🧠 {do_remember(text)}[/]")
-                messages[0]["content"] += f"\n[Hatirlanan: {text}]"
+                remembered_notes.append(text)
             continue
         elif prompt.startswith("/memory"):
             from tools.memory_ops import recall
             arg = prompt[len("/memory"):].strip()
-            n = int(arg) if arg.isdigit() else 10
-            console.print(f"[dim]{recall(n=n)}[/]")
+            if arg.lstrip("-").isdigit():
+                console.print(f"[dim]{recall(n=int(arg))}[/]")
+            elif arg:
+                console.print(f"[dim]{recall(query=arg)}[/]")
+            else:
+                console.print(f"[dim]{recall(n=10)}[/]")
             continue
         elif prompt.startswith("/audit"):
             from tools.audit_ops import audit_tail, verify_chain
             arg = prompt[len("/audit"):].strip()
             if arg == "verify":
                 console.print(f"[dim]{verify_chain()}[/]")
+            elif arg.isdigit():
+                console.print(f"[dim]{audit_tail(n=int(arg))}[/]")
             else:
                 console.print(f"[dim]{audit_tail()}[/]")
             continue
@@ -904,19 +937,44 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
                 console.print(f"[bold red]Model yuklenemedi:[/] {e}")
             continue
         elif prompt == "?":
-            console.print(
-                "[dim]Komutlar: /exit, /clear, /verbose (thinking log), /confirm (yazma onayi), "
-                "/debug (hata ayiklama modu ac/kapa - DEBUG_SYSTEM_PROMPT kullanir), "
-                "/socratic (Sokratik ogrenme modu ac/kapa - kod aciklamak yerine rehber sorular sorar), "
-                "/save (oturumu kaydet), /index [yollar] (kod tabanini indexle), "
-                "/rollback [N|list] (son N write_file/edit_file islemini geri al), "
-                "/airgap (air-gapped mod ac/kapa), /remember <metin> (karar kaydet), "
-                "/memory [N] (kayitli kararlari listele), /audit [verify] (denetim izini goster/dogrula), "
-                "/model <isim> (manuel model degisimi), /ctx <n>|reset (num_ctx override), /look <soru>, "
-                "/doctor (VRAM/RAM durumu), /stats [model] (token/s gecmisi), /status (yuklu model), "
-                "/log [N] (son N log satiri), /models (model listesi), /load <dosya> (session yukle), "
-                "veya direkt yaz. (Not: /exit veya cikiste oturumun ozeti varsa otomatik hafizaya kaydedilir)[/]"
-            )
+            _ht = Table(show_header=True, header_style="bold cyan", box=None, padding=(0, 2))
+            _ht.add_column("Komut", style="bold")
+            _ht.add_column("Açıklama", style="dim")
+            _HELP = [
+                ("── Oturum ──", ""),
+                ("/exit", "Çıkış (oturum özeti hafızaya kaydedilir)"),
+                ("/clear", "Konuşma geçmişini sıfırla"),
+                ("/save", "Oturumu workspace/ altına JSON olarak kaydet"),
+                ("/load <dosya>", "Kaydedilmiş oturumu yükle"),
+                ("── Modlar ──", ""),
+                ("/debug", "Hata ayıklama modunu aç/kapat"),
+                ("/socratic", "Sokratik öğrenme modunu aç/kapat"),
+                ("/verbose  (F2)", "Thinking log aç/kapat"),
+                ("/confirm", "write_file/edit_file öncesi onay iste"),
+                ("/airgap", "Air-gapped mod (sadece localhost)"),
+                ("── Model & Context ──", ""),
+                ("/model <isim>", "Modeli manuel sabitle  (/model clear ile serbest bırak)"),
+                ("/models", "Çekili modelleri listele"),
+                ("/ctx <n>|reset", "num_ctx override"),
+                ("/status", "Yüklü modeli göster"),
+                ("── Hafıza & Araç ──", ""),
+                ("/remember <metin>", "Karar/not kaydet"),
+                ("/memory [N|metin]", "Son N kaydı listele veya metin ile ara"),
+                ("/audit [N|verify]", "Denetim izini göster veya doğrula"),
+                ("/rollback [N|list]", "Son N write/edit işlemini geri al"),
+                ("/index [yollar]", "RAG indeksini güncelle"),
+                ("/look <soru>", "Ekran görüntüsü al → VisionAgent'a gönder"),
+                ("── İzleme ──", ""),
+                ("/doctor", "VRAM/RAM kullanımını ölç"),
+                ("/stats [model]", "Token/s performans özeti"),
+                ("/log [N]", "Son N log satırı"),
+            ]
+            for cmd, desc in _HELP:
+                if desc == "":
+                    _ht.add_row(f"[cyan]{cmd}[/]", "")
+                else:
+                    _ht.add_row(cmd, desc)
+            console.print(_ht)
             continue
             
         is_vision = False
@@ -995,10 +1053,10 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
                 base_system = CODE_SYSTEM_PROMPT
                 tools_schema, tool_executor = CODER_TOOLS_SCHEMA, CODER_TOOL_EXECUTOR
 
-        # Hafiza bloğunu her tur taze base_system üzerine yaz —
-        # bir önceki turun hafızalı versiyonunu base alırsa birikir.
+        # Hafiza + /remember notlarini her tur taze base_system üzerine yaz.
         mem = _memory_context()
-        messages[0] = {"role": "system", "content": base_system + mem if mem else base_system}
+        notes = ("\n" + "\n".join(f"[Hatirlanan: {n}]" for n in remembered_notes)) if remembered_notes else ""
+        messages[0] = {"role": "system", "content": base_system + mem + notes}
 
         try:
             result = run_agent_loop(
@@ -1011,7 +1069,7 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
         except KeyboardInterrupt:
             console.print("\n[dim]İptal edildi.[/]")
             continue
-        print_result(result)
+        # run_agent_loop zaten içinde basıyor; burada tekrar basmıyoruz.
 
         # Goruntu base64'unu history'den cikar — yoksa her turn'da tekrar gonderilir
         if image_message is not None:

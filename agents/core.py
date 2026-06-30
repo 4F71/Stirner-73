@@ -344,16 +344,17 @@ def run_agent_loop(
         # Append assistant message to history
         history.append(message)
 
+        _RETRY_MARKER = "[RETRY]"
         if malformed_tool_call:
-            console.print("[dim]⚠️  Geçersiz/eksik JSON araç çağrısı tespit edildi, modelden tekrar isteniyor...[/]")
+            console.print("[dim]⚠️  Geçersiz JSON araç çağrısı, tekrar isteniyor...[/]")
             if config.audit_enabled:
                 append_event("tool_call_retry", {"model": model, "raw_content": content})
+            # Önceki retry mesajını geçmişten çıkar — üst üste birikmesini önle.
+            history[:] = [m for m in history if _RETRY_MARKER not in m.get("content", "")]
             history.append({
                 "role": "user",
                 "content": (
-                    "[SİSTEM UYARISI]: Önceki cevabındaki JSON araç çağrısı geçersiz veya eksikti "
-                    "('name'/'arguments' alanları eksik ya da parse edilemedi). SADECE şu formatta "
-                    "geçerli bir JSON nesnesi döndür, başka hiçbir metin yazma:\n"
+                    f"{_RETRY_MARKER} Gecersiz JSON. SADECE su format: "
                     "{\"name\": \"<arac_adi>\", \"arguments\": {...}}"
                 ),
             })
@@ -369,9 +370,10 @@ def run_agent_loop(
             console.print(f"\n[bold cyan]🤖 {model}[/] [dim]({elapsed:.1f}s)[/]")
             console.print(Markdown(content))
 
-        # If no tools called, we are done!
+        # If no tools called, we are done — return content so callers
+        # (council, single-shot CLI) can display or chain it if needed.
         if not tool_calls:
-            return "" # Return empty string since we already printed the content
+            return content
 
         for call in tool_calls:
             fn = call.get("function", {})
@@ -428,8 +430,15 @@ def run_agent_loop(
                 try:
                     result = str(executor(**args))
                 except Exception as exc:
-                    result = f"ERROR: {exc}"
-                    logger.warning("tool_call failed name=%s error=%s", name, exc)
+                    # Argüman özetini güvenli şekilde oluştur: büyük değerleri kırp.
+                    _MASK = {"password", "token", "secret", "key", "auth"}
+                    safe_args = {
+                        k: ("***" if any(m in k.lower() for m in _MASK)
+                            else (str(v)[:80] + "..." if len(str(v)) > 80 else v))
+                        for k, v in args.items()
+                    }
+                    result = f"ERROR [{name}({safe_args})]: {exc}"
+                    logger.warning("tool_call failed name=%s args=%s error=%s", name, safe_args, exc)
 
             preview = result[:500] + "..." if len(result) > 500 else result
             logger.info("tool_result name=%s result=%s", name, preview)

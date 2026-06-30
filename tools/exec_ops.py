@@ -27,7 +27,11 @@ def run_python(path: str, args: str = "", timeout: int = TIMEOUT_SECONDS) -> str
             encoding="utf-8", errors="replace", timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        return f"ERROR: execution timed out after {timeout}s"
+        return (
+            f"ERROR: execution timed out after {timeout}s. "
+            "Artirmak icin: run_python(..., timeout=<saniye>) "
+            "veya FREE_PYTHON_TIMEOUT=<saniye> env var."
+        )
 
     output = (proc.stdout + proc.stderr).strip()
     return f"[exit code {proc.returncode}]\n{output}" if output else f"[exit code {proc.returncode}] (cikti yok)"

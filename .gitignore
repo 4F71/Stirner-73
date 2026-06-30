@@ -14,3 +14,16 @@ logs/
 # Gizli / kişisel dosyalar
 private/
 CLAUDE.md
+
+# Training çıktıları — GB boyutunda veya türetilmiş, commit edilmez
+# (dataset.jsonl, train_router_lora.py, Modelfile.router commit edilir)
+training/router-lora/
+training/router-merged/
+training/llama.cpp/
+training/*.gguf
+training/runs/
+training/hf_cache/
+
+# Model ağırlık dosyaları (HuggingFace indirmeleri repo'ya taşınırsa)
+*.safetensors
+*.gguf

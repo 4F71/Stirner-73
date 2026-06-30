@@ -545,9 +545,23 @@ def _parse_session(raw: str) -> list[dict]:
     return loaded_msgs
 
 
-DEFAULT_ROUTER_MODEL = "qwen2.5:1.5b"
+# "free-router" = LoRA fine-tuned Qwen2.5-1.5B (training/train_router_lora.py ile üret).
+# Henüz üretilmediyse qwen2.5:1.5b kullanılır.
+import subprocess as _sp
+def _router_model_name() -> str:
+    try:
+        out = _sp.run(
+            ["ollama", "list"], capture_output=True, text=True, timeout=3
+        ).stdout
+        return "free-router" if "free-router" in out else "qwen2.5:1.5b"
+    except Exception:
+        return "qwen2.5:1.5b"
 
-_ROUTER_FEW_SHOT = """Examples:
+DEFAULT_ROUTER_MODEL = _router_model_name()
+
+# Fine-tuned model zaten görev üzerine eğitilmiş; few-shot örnek gereksiz.
+# Base model (qwen2.5:1.5b) için few-shot'u koruyoruz.
+_ROUTER_FEW_SHOT = "" if DEFAULT_ROUTER_MODEL == "free-router" else """Examples:
 {"prompt": "şu fonksiyonu düzelt", "intent": "code"}
 {"prompt": "fix this bug in main.py", "intent": "code"}
 {"prompt": "bu proje nasıl çalışıyor", "intent": "codebase"}
@@ -557,19 +571,26 @@ _ROUTER_FEW_SHOT = """Examples:
 
 
 def route_prompt(client: OllamaClient, current_model: str, user_prompt: str) -> str:
-    sys_msg = (
-        "You are a strict intent classifier. Return ONLY a valid JSON object with a single key 'intent', "
-        "one of 'code', 'codebase', or 'research'. "
-        "All agents can call tools, so the mere mention of a tool name does NOT by itself determine intent — "
-        "focus on what the user ultimately wants. "
-        "If the user wants code WRITTEN, MODIFIED, or DEBUGGED (new files, edits, fixes, running scripts), intent is 'code'. "
-        "If the user wants something about THIS project's OWN codebase EXPLAINED, FOUND, or ANALYZED "
-        "(how an existing function/class/file in this repo works, where something is implemented, architecture "
-        "questions about this project), intent is 'codebase'. "
-        "If the user wants general information, web research, or abstract explanations unrelated to this "
-        "project's own source code (like physics, history, current events), intent is 'research'.\n"
-        + _ROUTER_FEW_SHOT
-    )
+    # Fine-tuned model için sadece kısa sistem talimatı yeterli.
+    if DEFAULT_ROUTER_MODEL == "free-router":
+        sys_msg = (
+            "Sen bir intent sınıflandırıcısın. "
+            "SADECE JSON döndür: {\"intent\": \"code\"} | {\"intent\": \"codebase\"} | {\"intent\": \"research\"}"
+        )
+    else:
+        sys_msg = (
+            "You are a strict intent classifier. Return ONLY a valid JSON object with a single key 'intent', "
+            "one of 'code', 'codebase', or 'research'. "
+            "All agents can call tools, so the mere mention of a tool name does NOT by itself determine intent — "
+            "focus on what the user ultimately wants. "
+            "If the user wants code WRITTEN, MODIFIED, or DEBUGGED (new files, edits, fixes, running scripts), intent is 'code'. "
+            "If the user wants something about THIS project's OWN codebase EXPLAINED, FOUND, or ANALYZED "
+            "(how an existing function/class/file in this repo works, where something is implemented, architecture "
+            "questions about this project), intent is 'codebase'. "
+            "If the user wants general information, web research, or abstract explanations unrelated to this "
+            "project's own source code (like physics, history, current events), intent is 'research'.\n"
+            + _ROUTER_FEW_SHOT
+        )
     messages = [
         {"role": "system", "content": sys_msg},
         {"role": "user", "content": user_prompt}

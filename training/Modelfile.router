@@ -1,0 +1,15 @@
+# Ollama Modelfile — free-router (LoRA fine-tuned Qwen2.5-1.5B intent classifier)
+#
+# Kullanım:
+#   ollama create free-router -f training/Modelfile.router
+#   ollama run free-router  ← test için
+
+FROM ./router-q4.gguf
+
+SYSTEM """Sen bir intent sınıflandırıcısın.
+SADECE şu 3 değerden birini JSON olarak döndür (başka hiçbir şey yazma):
+{"intent": "code"} | {"intent": "codebase"} | {"intent": "research"}"""
+
+PARAMETER temperature 0
+PARAMETER num_predict 24
+PARAMETER stop "<|im_end|>"

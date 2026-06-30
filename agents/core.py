@@ -366,7 +366,23 @@ def run_agent_loop(
             fn = call.get("function", {})
             name = fn.get("name")
             raw_args = fn.get("arguments") or {}
-            args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+            if isinstance(raw_args, str):
+                try:
+                    args = json.loads(raw_args)
+                except json.JSONDecodeError as exc:
+                    logger.warning("tool_call arg parse failed name=%s error=%s", name, exc)
+                    history.append({
+                        "role": "user",
+                        "content": (
+                            f"[SİSTEM ARACI SONUCU - {name}]:\n"
+                            f"ERROR: '{name}' aracinin argumanlari gecerli JSON degil, parse edilemedi ({exc}). "
+                            "Lutfen araci SADECE gecerli bir JSON 'arguments' nesnesiyle tekrar cagir.\n\n"
+                            "[ZORUNLU TALİMAT]: Cevabını tamamen TÜRKÇE yaz. Kazakça, İngilizce veya başka dil YASAK."
+                        ),
+                    })
+                    continue
+            else:
+                args = raw_args
 
             logger.info("tool_call name=%s args=%s", name, args)
             if config.audit_enabled:
@@ -390,7 +406,13 @@ def run_agent_loop(
 
             executor = tool_executor.get(name)
             if executor is None:
-                result = f"ERROR: unknown tool {name}"
+                available = ", ".join(sorted(tool_executor.keys())) or "(yok)"
+                result = (
+                    f"ERROR: '{name}' adli bir arac yok. Bu modda kullanilabilir araclar: {available}. "
+                    "Gorevine uygun olani sec; eger istedigin yetenek listede yoksa farkli bir mod gerekir "
+                    "(orn. kod yazma icin 'code', proje analizi icin 'codebase', web/arastirma icin 'research')."
+                )
+                logger.warning("unknown tool requested name=%s", name)
             else:
                 try:
                     result = str(executor(**args))

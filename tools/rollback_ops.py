@@ -44,9 +44,11 @@ def record_snapshot(rel_path: str, abs_path: str) -> None:
 
     if existed_before:
         snapshot_file = f"{entry_id}.snap"
-        with open(abs_path, "r", encoding="utf-8") as f:
+        # Byte modunda kopyala: text mode binary dosyalarda UnicodeDecodeError firlatir
+        # ve snapshot alinamadan write_file/edit_file coker.
+        with open(abs_path, "rb") as f:
             content = f.read()
-        with open(os.path.join(SNAPSHOT_DIR, snapshot_file), "w", encoding="utf-8") as f:
+        with open(os.path.join(SNAPSHOT_DIR, snapshot_file), "wb") as f:
             f.write(content)
 
     entries = _read_journal()
@@ -76,9 +78,9 @@ def rollback(steps: int = 1) -> str:
         if entry["existed_before"]:
             snapshot_path = os.path.join(SNAPSHOT_DIR, entry["snapshot"])
             if os.path.isfile(snapshot_path):
-                with open(snapshot_path, "r", encoding="utf-8") as f:
+                with open(snapshot_path, "rb") as f:
                     content = f.read()
-                with open(target, "w", encoding="utf-8") as f:
+                with open(target, "wb") as f:
                     f.write(content)
                 restored.append(f"geri alindi: {entry['path']} (onceki haline donduruldu)")
             else:

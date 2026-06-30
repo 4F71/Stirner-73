@@ -1,6 +1,7 @@
 """Sandboxed Python execution — lets agents actually run the code they write."""
 
 import os
+import shlex
 import subprocess
 import sys
 
@@ -17,7 +18,7 @@ def run_python(path: str, args: str = "") -> str:
     if not os.path.isfile(target):
         raise ValueError(f"file not found: {path}")
 
-    cmd = [sys.executable, target] + (args.split() if args else [])
+    cmd = [sys.executable, target] + (shlex.split(args) if args else [])
     try:
         proc = subprocess.run(
             cmd, cwd=WORKSPACE_ROOT, capture_output=True, text=True,

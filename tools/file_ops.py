@@ -31,8 +31,17 @@ def read_file(path: str) -> str:
     target = resolve_read_path(path)
     if not os.path.isfile(target):
         raise ValueError(f"file not found: {path}")
-    with open(target, "r", encoding="utf-8") as f:
-        return f.read()
+    try:
+        with open(target, "r", encoding="utf-8") as f:
+            return f.read()
+    except UnicodeDecodeError:
+        # Binary/UTF-8 olmayan dosya: ham bytes'i raw olarak dondurmek yerine
+        # modeli yaniltmamak icin acik bir uyari don.
+        size = os.path.getsize(target)
+        return (
+            f"[BINARY DOSYA] '{path}' UTF-8 metin olarak okunamadi "
+            f"(muhtemelen ikili/binary icerik, {size} byte). Bu arac sadece metin dosyalarini okur."
+        )
 
 
 def write_file(path: str, content: str) -> str:

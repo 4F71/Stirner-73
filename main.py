@@ -128,7 +128,7 @@ def code(prompt: str, model: str, confirm_writes: bool, no_network: bool, ctx: i
     agent_config.ctx_override = ctx
     agent = CoderAgent(model=model)
     try:
-        print_result(agent.run(prompt, mode="code"))
+        print_result(agent.run(_with_memory(prompt), mode="code"))
     except KeyboardInterrupt:
         click.echo("\n[free] durduruldu.")
 
@@ -184,7 +184,7 @@ def research(prompt: str, model: str, confirm_writes: bool, no_network: bool, ct
     agent_config.ctx_override = ctx
     agent = ResearchAgent(model=model)
     try:
-        print_result(agent.run(prompt))
+        print_result(agent.run(_with_memory(prompt)))
     except KeyboardInterrupt:
         click.echo("\n[free] durduruldu.")
 
@@ -217,6 +217,30 @@ def review(prompt: str, model: str, confirm_writes: bool, no_network: bool, ctx:
         print_result(agent.run(prompt))
     except KeyboardInterrupt:
         click.echo("\n[free] durduruldu.")
+        return
+
+    if staged:
+        # Review bittikten sonra ayni diff icin commit mesaji onerisi al
+        from tools.git_ops import git_diff_staged
+        diff_for_commit = git_diff_staged()
+        if diff_for_commit and diff_for_commit != "(degisiklik yok)":
+            commit_prompt = (
+                "Asagidaki git diff icin conventional commit formatinda (type(scope): aciklama) "
+                "Turkce bir commit mesaji oner. SADECE mesaji yaz, baska hicbir sey ekleme:\n\n"
+                f"```diff\n{diff_for_commit}\n```"
+            )
+            try:
+                client = OllamaClient()
+                resp = client.chat(
+                    model,
+                    [{"role": "user", "content": commit_prompt}],
+                    options={"temperature": 0.2},
+                )
+                suggestion = resp.get("message", {}).get("content", "").strip()
+                if suggestion:
+                    console.print(f"\n[bold yellow]💡 Önerilen commit:[/] {suggestion}")
+            except Exception as exc:
+                logger.debug("commit mesaji onerisi alinirken hata: %s", exc)
 
 
 @free.command()
@@ -414,6 +438,32 @@ def _keyword_route(prompt: str) -> str | None:
     return None  # esit skor, LLM'e gonder
 
 
+def _warn_rag_index_age() -> None:
+    """Shell acilisinda RAG index'inin yasini kontrol eder; eskiyse sari uyari basar."""
+    from tools.rag_ops import INDEX_DIR
+    import time as _time
+    if not os.path.isdir(INDEX_DIR):
+        console.print("[bold yellow]⚠️  RAG index bulunamadı. /index ile oluşturun.[/]")
+        return
+    age_seconds = _time.time() - os.path.getmtime(INDEX_DIR)
+    age_hours = age_seconds / 3600
+    if age_hours >= 24:
+        age_days = int(age_hours // 24)
+        console.print(
+            f"[bold yellow]⚠️  RAG index {age_days} gün önce oluşturuldu. "
+            "/index ile güncelleyin.[/]"
+        )
+
+
+def _with_memory(prompt: str) -> str:
+    """Tek seferlik CLI komutlari icin prompt'a son 5 proje kararini ekler."""
+    from tools.memory_ops import recall
+    recent = recall(n=5)
+    if "bos" in recent or "bulunamadi" in recent:
+        return prompt
+    return f"[Proje hafızası:\n{recent}]\n\n{prompt}"
+
+
 def _parse_session(raw: str) -> list[dict]:
     """Kaydedilmis bir session'i mesaj listesine cevirir.
 
@@ -543,6 +593,9 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
         return
 
     messages = [{"role": "system", "content": CODE_SYSTEM_PROMPT}]
+
+    # RAG index yasini kontrol et ve gerekirse uyard
+    _warn_rag_index_age()
 
     # Key bindings
     kb = KeyBindings()

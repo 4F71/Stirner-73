@@ -7,10 +7,12 @@ import sys
 
 from tools.file_ops import WORKSPACE_ROOT
 
-TIMEOUT_SECONDS = 30
+# FREE_PYTHON_TIMEOUT env var ile override edilebilir; yoksa 30s varsayilan.
+_ENV_TIMEOUT = os.environ.get("FREE_PYTHON_TIMEOUT")
+TIMEOUT_SECONDS: int = int(_ENV_TIMEOUT) if _ENV_TIMEOUT and _ENV_TIMEOUT.isdigit() else 30
 
 
-def run_python(path: str, args: str = "") -> str:
+def run_python(path: str, args: str = "", timeout: int = TIMEOUT_SECONDS) -> str:
     """Runs a Python script from inside workspace/ and returns stdout+stderr."""
     target = os.path.realpath(os.path.join(WORKSPACE_ROOT, path))
     if os.path.commonpath([target, WORKSPACE_ROOT]) != WORKSPACE_ROOT:
@@ -22,10 +24,10 @@ def run_python(path: str, args: str = "") -> str:
     try:
         proc = subprocess.run(
             cmd, cwd=WORKSPACE_ROOT, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=TIMEOUT_SECONDS,
+            encoding="utf-8", errors="replace", timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        return f"ERROR: execution timed out after {TIMEOUT_SECONDS}s"
+        return f"ERROR: execution timed out after {timeout}s"
 
     output = (proc.stdout + proc.stderr).strip()
     return f"[exit code {proc.returncode}]\n{output}" if output else f"[exit code {proc.returncode}] (cikti yok)"
@@ -50,6 +52,13 @@ EXEC_TOOLS_SCHEMA = [
                     "args": {
                         "type": "string",
                         "description": "Optional space-separated command-line arguments.",
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": (
+                            f"Max execution time in seconds (default {TIMEOUT_SECONDS}). "
+                            "Increase for long-running scripts (e.g. training loops)."
+                        ),
                     },
                 },
                 "required": ["path"],

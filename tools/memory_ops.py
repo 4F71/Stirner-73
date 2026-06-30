@@ -41,8 +41,8 @@ def recall(query: str = "", n: int = 10, path: str = MEMORY_PATH) -> str:
         return "Hafiza bos, henuz kayitli karar yok."
 
     if query:
-        q = query.lower()
-        entries = [e for e in entries if q in e["text"].lower() or q in e.get("tag", "").lower()]
+        q = query.casefold()
+        entries = [e for e in entries if q in e["text"].casefold() or q in e.get("tag", "").casefold()]
     if not entries:
         return "Eslesen kayit bulunamadi."
 

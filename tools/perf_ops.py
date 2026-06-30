@@ -47,7 +47,7 @@ def perf_stats(model_filter: str = "") -> str:
                 continue
             m = entry.get("model", "")
             tps = entry.get("tokens_per_sec", 0)
-            if model_filter and model_filter.lower() not in m.lower():
+            if model_filter and model_filter.casefold() not in m.casefold():
                 continue
             if tps > 0:
                 data[m].append(tps)

@@ -14,6 +14,7 @@ from agents.core import (
     MODEL_VRAM_ESTIMATES_GB,
     OllamaClient,
     estimate_context_usage,
+    logger,
 )
 from agents.research import ResearchAgent
 from agents.reviewer import ReviewerAgent
@@ -231,11 +232,20 @@ def council(prompt: str, model: str, no_network: bool, ctx: int | None):
     coder = CoderAgent(model=model)
     reviewer = ReviewerAgent(model=model)
 
+    def _round_failed(text: str) -> bool:
+        # run_agent_loop basarili cevabi dogrudan konsola yazip "" doner; yalnizca
+        # tur-limiti/hata durumunda "[free] ..." sentinel'i doner. Bu durumda bir
+        # sonraki tura saglikli girdi aktarilamaz, zinciri surdurmek anlamsiz.
+        return text.strip().startswith("[free]")
+
     console.print("[bold cyan]🧠 Tur 1/3 — Coder öneri üretiyor...[/]")
     try:
         proposal = coder.run(f"Asagidaki gorev icin bir cozum oner:\n\n{prompt}", mode="code")
     except KeyboardInterrupt:
         click.echo("\n[free] durduruldu.")
+        return
+    if _round_failed(proposal):
+        console.print("[bold red]Coder ilk turda gecerli bir oneri uretemedi (tur limiti/hata). Council durduruldu.[/]")
         return
 
     console.print("[bold cyan]🔍 Tur 2/3 — Reviewer elestiriyor...[/]")
@@ -246,6 +256,9 @@ def council(prompt: str, model: str, no_network: bool, ctx: int | None):
         )
     except KeyboardInterrupt:
         click.echo("\n[free] durduruldu.")
+        return
+    if _round_failed(critique):
+        console.print("[bold red]Reviewer gecerli bir elestiri uretemedi (tur limiti/hata). Council durduruldu.[/]")
         return
 
     console.print("[bold cyan]✅ Tur 3/3 — Coder son versiyonu yazıyor...[/]")
@@ -342,7 +355,7 @@ from agents.coder import (
 )
 from agents.research import RESEARCH_SYSTEM_PROMPT, RESEARCH_TOOLS_SCHEMA, RESEARCH_TOOL_EXECUTOR
 from tools.git_ops import GIT_TOOLS_SCHEMA, GIT_TOOL_EXECUTOR
-from agents.vision import VISION_SYSTEM_PROMPT
+from agents.vision import VISION_SYSTEM_PROMPT, VISION_TOOLS_SCHEMA, VISION_TOOL_EXECUTOR
 from agents.core import run_agent_loop
 import json
 import time
@@ -385,7 +398,7 @@ _CODEBASE_KEYWORDS = {
 
 def _keyword_route(prompt: str) -> str | None:
     """Belirsiz olmayan promptlari LLM'e gonderme, dogrudan siniflandir."""
-    lower = prompt.lower()
+    lower = prompt.casefold()
     code_score = sum(1 for kw in _CODE_KEYWORDS if kw in lower)
     research_score = sum(1 for kw in _RESEARCH_KEYWORDS if kw in lower)
     codebase_score = sum(1 for kw in _CODEBASE_KEYWORDS if kw in lower)
@@ -399,6 +412,45 @@ def _keyword_route(prompt: str) -> str | None:
     if codebase_score == top and codebase_score > code_score and codebase_score > research_score:
         return "codebase"
     return None  # esit skor, LLM'e gonder
+
+
+def _parse_session(raw: str) -> list[dict]:
+    """Kaydedilmis bir session'i mesaj listesine cevirir.
+
+    Once JSON formatini dener (yeni /save formati, round-trip guvenli); olmazsa
+    eski Markdown '### user'/'### assistant' formatina geri duser.
+    """
+    try:
+        data = json.loads(raw)
+        if isinstance(data, list):
+            return [
+                {"role": m["role"], "content": m.get("content", "")}
+                for m in data
+                if isinstance(m, dict) and m.get("role")
+            ]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        pass
+
+    # Legacy Markdown fallback
+    loaded_msgs: list[dict] = []
+    current_role = None
+    current_lines: list[str] = []
+    for line in raw.splitlines():
+        if line.startswith("### user"):
+            if current_role and current_lines:
+                loaded_msgs.append({"role": current_role, "content": "\n".join(current_lines).strip()})
+            current_role = "user"
+            current_lines = []
+        elif line.startswith("### assistant"):
+            if current_role and current_lines:
+                loaded_msgs.append({"role": current_role, "content": "\n".join(current_lines).strip()})
+            current_role = "assistant"
+            current_lines = []
+        elif current_role:
+            current_lines.append(line)
+    if current_role and current_lines:
+        loaded_msgs.append({"role": current_role, "content": "\n".join(current_lines).strip()})
+    return loaded_msgs
 
 
 def route_prompt(client: OllamaClient, current_model: str, user_prompt: str) -> str:
@@ -446,8 +498,8 @@ def capture_snipping_tool(save_path: str) -> bool:
         ctypes.windll.user32.OpenClipboard(None)
         ctypes.windll.user32.EmptyClipboard()
         ctypes.windll.user32.CloseClipboard()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("clipboard temizleme basarisiz: %s", exc)
 
     # Ekran Alıntısı Aracı'nı başlat
     os.system("start ms-screenclip:")
@@ -642,24 +694,14 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
                 else:
                     with open(load_path, "r", encoding="utf-8") as _sf:
                         raw = _sf.read()
-                    loaded_msgs = []
-                    current_role = None
-                    current_lines: list[str] = []
-                    for line in raw.splitlines():
-                        if line.startswith("### user"):
-                            if current_role and current_lines:
-                                loaded_msgs.append({"role": current_role, "content": "\n".join(current_lines).strip()})
-                            current_role = "user"
-                            current_lines = []
-                        elif line.startswith("### assistant"):
-                            if current_role and current_lines:
-                                loaded_msgs.append({"role": current_role, "content": "\n".join(current_lines).strip()})
-                            current_role = "assistant"
-                            current_lines = []
-                        elif current_role:
-                            current_lines.append(line)
-                    if current_role and current_lines:
-                        loaded_msgs.append({"role": current_role, "content": "\n".join(current_lines).strip()})
+                    loaded_msgs = _parse_session(raw)
+                    # Buyuk session yuklenince context taşmasin: son N mesajla sinirla.
+                    if len(loaded_msgs) > MAX_HISTORY_MESSAGES:
+                        console.print(
+                            f"[dim]⚠️  Session {len(loaded_msgs)} mesaj iceriyor, "
+                            f"son {MAX_HISTORY_MESSAGES} mesaja kirpildi (context taşmasin diye).[/]"
+                        )
+                        loaded_msgs = loaded_msgs[-MAX_HISTORY_MESSAGES:]
                     messages[1:] = loaded_msgs
                     console.print(f"[dim]📂 Session yüklendi: {arg} ({len(loaded_msgs)} mesaj)[/]")
             continue
@@ -669,13 +711,15 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
             save_name = f"session_{ts}.md"
             save_path = os.path.join(WORKSPACE_ROOT, save_name)
             os.makedirs(WORKSPACE_ROOT, exist_ok=True)
-            lines = []
-            for m in messages:
-                if m["role"] == "system" or not m.get("content"):
-                    continue
-                lines.append(f"### {m['role']}\n\n{m['content']}\n")
+            # JSON serialize: mesaj icerigi '### user' gibi basliklar icerse bile
+            # round-trip'te bozulmaz (Markdown satir-bazli parse'in aksine).
+            saved_msgs = [
+                {"role": m["role"], "content": m["content"]}
+                for m in messages
+                if m["role"] != "system" and m.get("content")
+            ]
             with open(save_path, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines))
+                json.dump(saved_msgs, f, ensure_ascii=False, indent=2)
             console.print(f"[dim]💾 Kaydedildi: workspace/{save_name}[/]")
             continue
         elif prompt.startswith("/rollback"):
@@ -839,10 +883,10 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
             tool_executor = {**RESEARCH_TOOL_EXECUTOR, **GIT_TOOL_EXECUTOR}
         elif model == DEFAULT_RESEARCH_MODEL and not pinned_model:
             messages[0] = {"role": "system", "content": RESEARCH_SYSTEM_PROMPT}
-            tools_schema, tool_executor = FILE_TOOLS_SCHEMA, TOOL_EXECUTOR
+            tools_schema, tool_executor = RESEARCH_TOOLS_SCHEMA, RESEARCH_TOOL_EXECUTOR
         elif model == DEFAULT_VISION_MODEL and not pinned_model:
             messages[0] = {"role": "system", "content": VISION_SYSTEM_PROMPT}
-            tools_schema, tool_executor = FILE_TOOLS_SCHEMA, TOOL_EXECUTOR
+            tools_schema, tool_executor = VISION_TOOLS_SCHEMA, VISION_TOOL_EXECUTOR
         elif debug_mode:
             messages[0] = {"role": "system", "content": DEBUG_SYSTEM_PROMPT}
             tools_schema, tool_executor = CODER_TOOLS_SCHEMA, CODER_TOOL_EXECUTOR

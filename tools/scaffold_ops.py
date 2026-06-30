@@ -89,6 +89,13 @@ if __name__ == "__main__":
 
 AVAILABLE_TYPES = list(TEMPLATES.keys())
 
+# Her sablon icin uretim sonrasi onerilen ilk komut/adim.
+NEXT_STEPS: dict[str, str] = {
+    "torch-experiment": "cd workspace/{name} && pip install -r requirements.txt && python train.py",
+    "research": "cd workspace/{name} && python scratchpad.py  (notlar: notes.md)",
+    "generic": "cd workspace/{name} && python main.py",
+}
+
 
 def scaffold(name: str, template_type: str = "generic") -> str:
     if template_type not in TEMPLATES:
@@ -110,7 +117,9 @@ def scaffold(name: str, template_type: str = "generic") -> str:
             f.write(content)
         created.append(f"  workspace/{name}/{filename}")
 
+    next_step = NEXT_STEPS.get(template_type, "cd workspace/{name}").format(name=name)
     return (
         f"'{template_type}' sablonu olusturuldu: workspace/{name}/\n"
         + "\n".join(created)
+        + f"\n\nSonraki adim: {next_step}"
     )

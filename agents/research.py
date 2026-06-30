@@ -12,6 +12,10 @@ from tools.grep_ops import GREP_TOOLS_SCHEMA, GREP_TOOL_EXECUTOR
 RESEARCH_TOOLS_SCHEMA = FILE_TOOLS_SCHEMA + RAG_TOOLS_SCHEMA + MEMORY_TOOLS_SCHEMA + GREP_TOOLS_SCHEMA
 RESEARCH_TOOL_EXECUTOR = {**TOOL_EXECUTOR, **RAG_TOOL_EXECUTOR, **MEMORY_TOOL_EXECUTOR, **GREP_TOOL_EXECUTOR}
 
+def _tool_names(schema: list) -> str:
+    return ", ".join(f"'{t['function']['name']}'" for t in schema)
+
+
 RESEARCH_SYSTEM_PROMPT = (
     "Sen 'free research' ajanısın. Kullanıcının sorusunu doğrudan araştıran OTONOM bir ajansın.\n\n"
     "KURAL 1: Araç çağırmadan ÖNCE HİÇBİR ŞEY YAZMA. İlk çıktın mutlaka bir JSON araç çağrısı olmalı.\n"
@@ -25,6 +29,7 @@ RESEARCH_SYSTEM_PROMPT = (
     "grep_codebase(pattern='...') kullan\n"
     "KURAL 3: Araç sonucunu aynen kullan. ASLA araç sonucunu yok say veya uydurma!\n"
     "KURAL 4: YANIT YALNIZCA TÜRKÇE.\n\n"
+    f"Mevcut araçlar: {_tool_names(RESEARCH_TOOLS_SCHEMA)}.\n\n"
     "Araç çağırma formatı (SADECE BU JSON, başka hiçbir şey yazma):\n"
     "{\n"
     "  \"name\": \"whois_lookup\",\n"

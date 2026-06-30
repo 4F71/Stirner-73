@@ -22,11 +22,15 @@ CODER_TOOL_EXECUTOR = {
     **AUDIT_TOOL_EXECUTOR, **ROLLBACK_TOOL_EXECUTOR,
 }
 
+
+def _tool_names(schema: list) -> str:
+    """Schema listesinden araç isimlerini virgülle birleştirilmiş string olarak döndürür."""
+    return ", ".join(f"'{t['function']['name']}'" for t in schema)
+
+
 CODE_SYSTEM_PROMPT = (
     "Sen 'free' otonom kodlama ajanısın. Sadece konuşmakla kalmaz, EYLEM yaparsın! "
-    "Mevcut araçlar: 'read_file', 'write_file', 'edit_file', 'list_workspace', 'run_python', "
-    "'git_diff', 'git_log', 'git_status', 'web_search', 'fetch_url', 'whois_lookup', 'search_codebase', "
-    "'grep_codebase', 'check_system_resources', 'audit_tail', 'verify_audit_chain', 'rollback_history'.\n\n"
+    f"Mevcut araçlar: {_tool_names(CODER_TOOLS_SCHEMA)}.\n\n"
     "DİKKAT: ASLA 'Ben bir yapay zekaım, dosyalara veya internete erişemem' gibi bahaneler üretme! "
     "SENİN DOSYALARA VE İNTERNETE ERİŞİMİN VAR! "
     "Kullanıcı dosya okuma, tarama veya proje inceleme istiyorsa MUTLAKA ARAÇ KULLANMALISIN. "
@@ -53,9 +57,7 @@ DEBUG_SYSTEM_PROMPT = (
     "teshis edersin. git_status/git_diff/git_log ile son degisiklikleri, run_python ile hatanin "
     "gercekten neye sebep oldugunu dogrula. Gerekirse edit_file (hedefli) veya write_file "
     "(tam yeniden yazim) ile duzeltilmis halini yazarsin. Bulgularini kisa ve net acikla.\n\n"
-    "Mevcut araclar: 'read_file', 'write_file', 'edit_file', 'list_workspace', 'run_python', "
-    "'git_diff', 'git_log', 'git_status', 'web_search', 'fetch_url', 'whois_lookup', 'search_codebase', "
-    "'grep_codebase', 'check_system_resources', 'audit_tail', 'verify_audit_chain', 'rollback_history'.\n"
+    f"Mevcut araclar: {_tool_names(CODER_TOOLS_SCHEMA)}.\n"
     "Bir arac cagirmak icin SADECE asagidaki JSON formatini ciktinda bulundur, BASKA HICBIR SEY YAZMA:\n"
     "{\n"
     "  \"name\": \"list_workspace\",\n"
@@ -65,6 +67,18 @@ DEBUG_SYSTEM_PROMPT = (
     "YANITLARINI KESINLIKLE VE SADECE TURKCE DILINDE VERECEKSIN."
 )
 
+
+# Sokratik mod kasitli olarak salt-okunur: write_file/edit_file/run_python/web araclari
+# yok, kullanici kodu kendi cikarimiyla incelesin diye sadece okuma+arama araclari verilir.
+_SOCRATIC_TOOL_NAMES = {"read_file", "list_workspace", "grep_codebase", "search_codebase"}
+SOCRATIC_TOOLS_SCHEMA = [
+    t for t in (FILE_TOOLS_SCHEMA + RAG_TOOLS_SCHEMA + GREP_TOOLS_SCHEMA)
+    if t["function"]["name"] in _SOCRATIC_TOOL_NAMES
+]
+SOCRATIC_TOOL_EXECUTOR = {
+    name: fn for name, fn in {**TOOL_EXECUTOR, **RAG_TOOL_EXECUTOR, **GREP_TOOL_EXECUTOR}.items()
+    if name in _SOCRATIC_TOOL_NAMES
+}
 
 SOCRATIC_SYSTEM_PROMPT = (
     "Sen 'free explain --socratic' ajanisin. Kullanici kodu EZBERLEMEK degil, "
@@ -81,7 +95,7 @@ SOCRATIC_SYSTEM_PROMPT = (
     "yeni bir soru sor; cevap yanlissa/yetersizse duzeltme SOYLEMEDEN, kullaniciyi dogru yone "
     "iten ek bir ipucu sorusu sor.\n"
     "4. Kullanici acikca 'anlat'/'cevabi ver'/'pas gecelim' derse, o zaman direkt ve net acikla.\n\n"
-    "Mevcut araclar: 'read_file', 'list_workspace', 'grep_codebase', 'search_codebase'.\n"
+    f"Mevcut araclar: {_tool_names(SOCRATIC_TOOLS_SCHEMA)}.\n"
     "Bir arac cagirmak icin SADECE asagidaki JSON formatini ciktinda bulundur, BASKA HICBIR SEY YAZMA:\n"
     "{\n"
     "  \"name\": \"read_file\",\n"
@@ -89,18 +103,6 @@ SOCRATIC_SYSTEM_PROMPT = (
     "}\n\n"
     "YANITLARINI KESINLIKLE VE SADECE TURKCE DILINDE VERECEKSIN."
 )
-
-# Sokratik mod kasitli olarak salt-okunur: write_file/edit_file/run_python/web araclari
-# yok, kullanici kodu kendi cikarimiyla incelesin diye sadece okuma+arama araclari verilir.
-_SOCRATIC_TOOL_NAMES = {"read_file", "list_workspace", "grep_codebase", "search_codebase"}
-SOCRATIC_TOOLS_SCHEMA = [
-    t for t in (FILE_TOOLS_SCHEMA + RAG_TOOLS_SCHEMA + GREP_TOOLS_SCHEMA)
-    if t["function"]["name"] in _SOCRATIC_TOOL_NAMES
-]
-SOCRATIC_TOOL_EXECUTOR = {
-    name: fn for name, fn in {**TOOL_EXECUTOR, **RAG_TOOL_EXECUTOR, **GREP_TOOL_EXECUTOR}.items()
-    if name in _SOCRATIC_TOOL_NAMES
-}
 
 
 class CoderAgent:

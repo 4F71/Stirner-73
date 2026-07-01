@@ -444,7 +444,8 @@ _RESEARCH_KEYWORDS = {
     "araştır", "nedir", "ne demek", "açıkla", "anlat", "tarih", "fizik",
     "matematik", "wikipedia", "haber", "güncel", "dünya", "http", "https",
     "web", "internet", "arama", "domain", "whois", "öğren", "karşılaştır",
-    "fark nedir", "ne zaman", "kim", "neden", "nasıl", "türkçe anlat",
+    "fark nedir", "ne zaman", "kim", "türkçe anlat",
+    "nasıl çalışır", "neden kullanılır", "ne zaman kullanmalı",
 }
 _CODE_KEYWORDS = {
     "yaz", "oluştur", "ekle", "düzelt", "fix", "implement", "refactor",
@@ -452,13 +453,19 @@ _CODE_KEYWORDS = {
     "kodu", "fonksiyon", "class", "dosya", "script", "güncelle",
     "dönüştür", "optimize", "temizle", "yeniden", "şablon", "modül",
     "import", "export", "parse", "generate", "döngü", "koşul",
+    "neden hata", "neden çalışmıyor", "neden geçmiyor", "neden patlıyor",
+    "nasıl fix", "nasıl çöz", "nasıl implement", "nasıl yapabilirim",
+    "incele", "kontrol et", "bak şuna",
+    "ne anlama geliyor", "bu hatayı", "bu exception", "bu warning",
+    "yavaş", "memory yiyor", "ağır",
 }
 _CODEBASE_KEYWORDS = {
-    "nerede", "nasıl çalış", "ne yapıyor", "incele", "açıkla bu", "commit",
-    "mimari", "yapı", "bu proje", "bu repo", "stirner", "agent", "araç",
-    "neden böyle", "nasıl implement", "hangi dosya", "hangi fonksiyon",
+    "nerede", "ne yapıyor", "açıkla bu", "commit",
+    "mimari", "bu proje", "bu repo", "stirner",
+    "neden böyle", "hangi dosya", "hangi fonksiyon",
     "kodu göster", "kod nerede", "nereden geliyor", "ne döndür",
-    "nasıl kullan", "örnek ver", "bağımlılık", "çağrı zinciri",
+    "bağımlılık", "çağrı zinciri",
+    "nasıl çalışıyor", "nasıl implement edilmiş", "nasıl kullanılıyor",
 }
 
 

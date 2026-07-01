@@ -15,14 +15,14 @@ logs/
 private/
 CLAUDE.md
 
-# Training çıktıları — GB boyutunda veya türetilmiş, commit edilmez
-# (dataset.jsonl, train_router_lora.py, Modelfile.router commit edilir)
+# Training — model ağırlıkları ve türetilmiş çıktılar commit edilmez
 training/router-lora/
 training/router-merged/
 training/llama.cpp/
 training/*.gguf
 training/runs/
 training/hf_cache/
+training/dataset.jsonl
 
 # Model ağırlık dosyaları (HuggingFace indirmeleri repo'ya taşınırsa)
 *.safetensors

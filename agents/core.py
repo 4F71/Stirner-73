@@ -53,7 +53,7 @@ MODEL_VRAM_ESTIMATES_GB = {
     "mistral-nemo": 7.1,
 }
 
-DEFAULT_CODER_MODEL = "hf.co/huihui-ai/Qwen2.5-Coder-7B-Instruct-abliterated-GGUF:Q6_K"
+DEFAULT_CODER_MODEL = "qwen2.5-coder:7b"
 DEFAULT_RESEARCH_MODEL = "hermes3:8b"
 DEFAULT_VISION_MODEL = "qwen3-vl:8b"
 # search_codebase (RAG) sentezinde hermes3/qwen2.5-coder denemelerinden daha iyi sonuc verdi

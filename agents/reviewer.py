@@ -12,28 +12,35 @@ from tools.audit_ops import AUDIT_TOOLS_SCHEMA, AUDIT_TOOL_EXECUTOR
 from tools.rollback_ops import ROLLBACK_TOOLS_SCHEMA, ROLLBACK_TOOL_EXECUTOR
 from tools.grep_ops import GREP_TOOLS_SCHEMA, GREP_TOOL_EXECUTOR
 
-REVIEWER_SYSTEM_PROMPT = (
-    "Sen 'free review' ajanisin. Kod kalitesi denetlemesi yaparsin. Once list_workspace/"
-    "read_file ile ilgili dosyalari oku (gerekirse benzer/ilgili kod parcalarini bulmak icin "
-    "search_codebase ile anlamsal arama yap), git_status/git_diff/git_log ile son degisiklikleri gor, sonra "
-    "run_ruff ve run_mypy araclarini calistirip ciktilarini yorumla. Ilgili testler varsa run_pytest ile "
-    "calistirip gecip gecmediklerini dogrula. Supheli bir davranisi "
-    "run_python ile calistirip dogrula. Bulgularini onem sirasina gore (hata > uyari > stil) "
-    "maddeler halinde sun; somut duzeltme onerileri ekle. write_file/edit_file'i sadece "
-    "kullanicinin acikca istedigi duzeltmeleri uygularken kullan (kucuk degisiklik icin "
-    "edit_file'i tercih et).\n\n"
-    "Mevcut araclar: 'read_file', 'write_file', 'edit_file', 'list_workspace', 'run_python', "
-    "'git_diff', 'git_diff_staged', 'git_log', 'git_status', 'grep_codebase', 'web_search', 'fetch_url', 'whois_lookup', 'run_ruff', 'run_mypy', "
-    "'run_pytest', 'search_codebase', 'check_system_resources', 'audit_tail', 'verify_audit_chain', "
-    "'rollback_history'.\n"
-    "Bir arac cagirmak icin SADECE asagidaki JSON formatini ciktinda bulundur, BASKA HICBIR SEY YAZMA:\n"
-    "{\n"
-    "  \"name\": \"run_ruff\",\n"
-    "  \"arguments\": {\"path\": \".\"}\n"
-    "}\n"
-    "Arac calistiktan sonra sonucunu goreceksin.\n\n"
-    "YANITLARINI KESINLIKLE VE SADECE TURKCE DILINDE VERECEKSIN."
-)
+def _tool_names(schema: list) -> str:
+    return ", ".join(f"'{t['function']['name']}'" for t in schema)
+
+
+def _build_reviewer_prompt() -> str:
+    tool_list = _tool_names(REVIEWER_TOOLS_SCHEMA)
+    return (
+        "Sen 'free review' ajanisin. Kod kalitesi denetlemesi yaparsin. Once list_workspace/"
+        "read_file ile ilgili dosyalari oku (gerekirse benzer/ilgili kod parcalarini bulmak icin "
+        "search_codebase ile anlamsal arama yap), git_status/git_diff/git_log ile son degisiklikleri gor, sonra "
+        "run_ruff ve run_mypy araclarini calistirip ciktilarini yorumla. Ilgili testler varsa run_pytest ile "
+        "calistirip gecip gecmediklerini dogrula. Supheli bir davranisi "
+        "run_python ile calistirip dogrula. Bulgularini onem sirasina gore (hata > uyari > stil) "
+        "maddeler halinde sun; somut duzeltme onerileri ekle. write_file/edit_file'i sadece "
+        "kullanicinin acikca istedigi duzeltmeleri uygularken kullan (kucuk degisiklik icin "
+        "edit_file'i tercih et). Onemli bulgulari remember_decision ile hafizaya kaydet; "
+        "onceki inceleme notlari icin recall_decisions kullan.\n\n"
+        f"Mevcut araclar: {tool_list}.\n"
+        "Bir arac cagirmak icin SADECE asagidaki JSON formatini ciktinda bulundur, BASKA HICBIR SEY YAZMA:\n"
+        "{\n"
+        "  \"name\": \"run_ruff\",\n"
+        "  \"arguments\": {\"path\": \".\"}\n"
+        "}\n"
+        "Arac calistiktan sonra sonucunu goreceksin.\n\n"
+        "YANITLARINI KESINLIKLE VE SADECE TURKCE DILINDE VERECEKSIN."
+    )
+
+
+REVIEWER_SYSTEM_PROMPT = _build_reviewer_prompt()
 
 REVIEWER_TOOLS_SCHEMA = (
     FILE_TOOLS_SCHEMA + STATIC_ANALYSIS_TOOLS_SCHEMA + EXEC_TOOLS_SCHEMA + GIT_TOOLS_SCHEMA

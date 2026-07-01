@@ -204,10 +204,18 @@ class ModelManager:
             logger.warning("could not query /api/ps: %s", exc)
             return info
 
+        already_loaded = any(
+            _base_name(e.get("name") or e.get("model") or "") == target
+            for e in loaded
+        )
+        if already_loaded:
+            # Hedef model zaten VRAM'de — unload/reload döngüsü yok
+            return info
+
         for entry in loaded:
             name = entry.get("name") or entry.get("model") or ""
             base = _base_name(name)
-            if not base or base == target:
+            if not base:
                 continue
             logger.info("unloading model=%s to free VRAM for %s", base, target)
             self.client.unload(name)
@@ -421,6 +429,7 @@ def run_agent_loop(
             _tool_repeat[_repeat_key] = _tool_repeat.get(_repeat_key, 0) + 1
             if _tool_repeat[_repeat_key] > _MAX_TOOL_REPEAT:
                 logger.warning("tool_loop_detected name=%s, aborting turn", name)
+                # break yerine continue: bu çağrıyı atla, aynı turdaki diğer tool_call'ları işlemeye devam et
                 history.append({
                     "role": "user",
                     "content": (
@@ -428,7 +437,7 @@ def run_agent_loop(
                         "çağırdın, sonuç değişmiyor. Farklı bir araç dene veya mevcut bilgiyle sonuca ulaş."
                     ),
                 })
-                break
+                continue
 
             logger.info("tool_call name=%s args=%s", name, args)
             if config.audit_enabled:

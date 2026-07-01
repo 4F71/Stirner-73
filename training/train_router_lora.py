@@ -29,6 +29,8 @@ MODEL_NAME   = "unsloth/Qwen2.5-1.5B-Instruct"
 OUTPUT_DIR   = Path(__file__).parent / "router-lora"
 GGUF_PATH    = Path(__file__).parent / "router-q4.gguf"
 DATASET_FILE = Path(__file__).parent / "data" / "cursor_dataset.jsonl"
+VAL_FILE     = Path(__file__).parent / "data" / "val_dataset.jsonl"   # hold-out set
+VAL_SPLIT    = 0.1   # %10 validation, eğitimde görülmez
 RUN_NAME     = "v2_2class_300ex"     # results/ altında klasör adı; yeni eğitimde güncelle
 RESULTS_DIR  = Path(__file__).parent / "results" / RUN_NAME
 
@@ -72,6 +74,7 @@ def load_model_and_tokenizer():
 
 
 def load_dataset(tokenizer):
+    import random
     rows = []
     with open(DATASET_FILE, encoding="utf-8") as f:
         for line in f:
@@ -79,30 +82,69 @@ def load_dataset(tokenizer):
             if not line:
                 continue
             obj = json.loads(line)
-            # Qwen2.5 chat template kullan
             text = tokenizer.apply_chat_template(
                 obj["messages"],
                 tokenize=False,
                 add_generation_prompt=False,
             )
-            rows.append({"text": text})
-    return Dataset.from_list(rows)
+            rows.append({"text": text, "_raw": obj})
+
+    # Karıştır ve %10'unu val olarak ayır — val set eğitimde görülmez
+    random.seed(42)
+    random.shuffle(rows)
+    n_val = max(1, int(len(rows) * VAL_SPLIT))
+    val_rows = rows[:n_val]
+    train_rows = rows[n_val:]
+
+    # Val setini dosyaya yaz (eval_router.py bunu kullanacak)
+    VAL_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(VAL_FILE, "w", encoding="utf-8") as f:
+        for r in val_rows:
+            f.write(json.dumps(r["_raw"], ensure_ascii=False) + "\n")
+    print(f"[INFO] Train: {len(train_rows)}, Val (hold-out): {len(val_rows)} → {VAL_FILE}")
+
+    return Dataset.from_list([{"text": r["text"]} for r in train_rows])
 
 
 class _TokenDataset(torch.utils.data.Dataset):
-    def __init__(self, encodings):
+    def __init__(self, encodings, response_start_ids: list[list[int]]):
         self.input_ids = encodings["input_ids"]
         self.attention_mask = encodings["attention_mask"]
+        # response_start_ids[i]: her örnek için sadece asistan cevabının başladığı token'lar
+        self.response_start_ids = response_start_ids
 
     def __len__(self):
         return len(self.input_ids)
 
     def __getitem__(self, idx):
         ids = self.input_ids[idx]
+        labels = ids.clone()
+
+        # Sistem promptu + kullanıcı promptu + padding → loss'tan maskele (-100)
+        # Sadece asistan cevabı ({\"intent\": ...}) loss'a giriyor
+        start_tokens = self.response_start_ids[idx]
+        if start_tokens:
+            # ids içinde start_tokens dizisini bul
+            seq = ids.tolist()
+            mask_until = 0
+            for i in range(len(seq) - len(start_tokens) + 1):
+                if seq[i:i + len(start_tokens)] == start_tokens:
+                    mask_until = i
+                    break
+            labels[:mask_until] = -100
+
+        # Padding token'larını da maskele
+        pad_id = self.input_ids[idx][-1].item()  # padding_side=right → sondaki eos/pad
+        for i in range(len(labels) - 1, -1, -1):
+            if labels[i].item() == pad_id and ids[i].item() == pad_id:
+                labels[i] = -100
+            else:
+                break
+
         return {
             "input_ids": ids,
             "attention_mask": self.attention_mask[idx],
-            "labels": ids.clone(),   # causal LM: hedef = girdi
+            "labels": labels,
         }
 
 
@@ -110,7 +152,13 @@ def train(model, tokenizer, dataset):
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
-    texts = list(dataset["text"])   # Dataset column → plain list
+    texts = list(dataset["text"])
+
+    # Asistan cevabının başladığı token dizisini bul — label masking için
+    # Qwen2.5 chat template'inde asistan turu "<|im_start|>assistant\n" ile başlar
+    _ASSISTANT_HEADER = "<|im_start|>assistant\n"
+    _header_ids = tokenizer.encode(_ASSISTANT_HEADER, add_special_tokens=False)
+
     enc = tokenizer(
         texts,
         truncation=True,
@@ -118,7 +166,7 @@ def train(model, tokenizer, dataset):
         padding="max_length",
         return_tensors="pt",
     )
-    torch_ds = _TokenDataset(enc)
+    torch_ds = _TokenDataset(enc, [_header_ids] * len(texts))
 
     args = TrainingArguments(
         output_dir=str(OUTPUT_DIR),

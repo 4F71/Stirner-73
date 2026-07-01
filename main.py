@@ -460,12 +460,13 @@ _CODE_KEYWORDS = {
     "yavaş", "memory yiyor", "ağır",
 }
 _CODEBASE_KEYWORDS = {
-    "nerede", "ne yapıyor", "açıkla bu", "commit",
-    "mimari", "bu proje", "bu repo", "stirner",
-    "neden böyle", "hangi dosya", "hangi fonksiyon",
-    "kodu göster", "kod nerede", "nereden geliyor", "ne döndür",
-    "bağımlılık", "çağrı zinciri",
+    "bu proje", "bu repo", "stirner",
+    "hangi dosya", "hangi fonksiyon",
+    "kodu göster", "kod nerede", "nereden geliyor",
+    "çağrı zinciri", "bu mimari", "proje yapısı",
     "nasıl çalışıyor", "nasıl implement edilmiş", "nasıl kullanılıyor",
+    "nerede implement", "nerede tanımlı", "nerede çağrılıyor",
+    "bu class ne", "bu fonksiyon ne", "bu modül ne",
 }
 
 
@@ -580,9 +581,10 @@ _ROUTER_FEW_SHOT = "" if DEFAULT_ROUTER_MODEL == "free-router" else """Examples:
 def route_prompt(client: OllamaClient, current_model: str, user_prompt: str) -> str:
     # Fine-tuned model için sadece kısa sistem talimatı yeterli.
     if DEFAULT_ROUTER_MODEL == "free-router":
+        # free-router yalnızca 2 sınıf üzerinde eğitildi; codebase _keyword_route ile yakalanır.
         sys_msg = (
             "Sen bir intent sınıflandırıcısın. "
-            "SADECE JSON döndür: {\"intent\": \"code\"} | {\"intent\": \"codebase\"} | {\"intent\": \"research\"}"
+            "SADECE JSON döndür: {\"intent\": \"code\"} | {\"intent\": \"research\"}"
         )
     else:
         sys_msg = (

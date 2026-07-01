@@ -17,7 +17,11 @@ import json
 from pathlib import Path
 from collections import defaultdict
 
-DATASET = Path(__file__).parent / "data" / "cursor_dataset.jsonl"
+# Val set (hold-out): train_router_lora.py tarafından oluşturulur, eğitimde görülmez
+# Yoksa tam dataset kullanılır (geriye dönük uyumluluk için)
+VAL_DATASET  = Path(__file__).parent / "data" / "val_dataset.jsonl"
+FULL_DATASET = Path(__file__).parent / "data" / "cursor_dataset.jsonl"
+DATASET      = VAL_DATASET if VAL_DATASET.exists() else FULL_DATASET
 DEFAULT_MODEL = Path(__file__).parent / "router-lora"
 LABELS = ["code", "research"]
 

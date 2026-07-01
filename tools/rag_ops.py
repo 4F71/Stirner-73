@@ -58,13 +58,7 @@ def index_codebase(paths: str = "") -> str:
     target_paths = [p.strip() for p in paths.split(",") if p.strip()] if paths else None
     files = target_paths if target_paths else list(_iter_source_files())
 
-    chroma = chromadb.PersistentClient(path=INDEX_DIR, settings=_CHROMA_SETTINGS)
-    try:
-        chroma.delete_collection(COLLECTION_NAME)
-    except Exception:
-        pass
-    collection = chroma.create_collection(COLLECTION_NAME)
-
+    # Embed'leri koleksiyona yazmadan önce topla — hata olursa index bozuk kalmaz
     ids, documents, embeddings, metadatas = [], [], [], []
     indexed_files = 0
 
@@ -81,11 +75,27 @@ def index_codebase(paths: str = "") -> str:
             continue
 
         for i, chunk in enumerate(_chunk_file(rel_path, text)):
+            try:
+                emb = _client.embed(EMBED_MODEL, chunk)
+            except Exception as exc:
+                return (
+                    f"ERROR: embed modeli çalışmadı ({exc}). "
+                    f"'ollama pull {EMBED_MODEL}' ile modeli çektiğinden emin ol. "
+                    "Index güncellenmedi."
+                )
             ids.append(f"{rel_path}::{i}")
             documents.append(chunk)
-            embeddings.append(_client.embed(EMBED_MODEL, chunk))
+            embeddings.append(emb)
             metadatas.append({"path": rel_path, "chunk": i})
         indexed_files += 1
+
+    # Embed başarılı → artık koleksiyonu sil ve yeniden oluştur
+    chroma = chromadb.PersistentClient(path=INDEX_DIR, settings=_CHROMA_SETTINGS)
+    try:
+        chroma.delete_collection(COLLECTION_NAME)
+    except Exception:
+        pass
+    collection = chroma.create_collection(COLLECTION_NAME)
 
     if documents:
         collection.add(ids=ids, documents=documents, embeddings=embeddings, metadatas=metadatas)

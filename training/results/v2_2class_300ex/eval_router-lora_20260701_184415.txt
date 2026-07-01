@@ -1,0 +1,66 @@
+Model : C:\Users\yedis\Desktop\yehu\Github Repo\Stirner-73\training\router-lora
+Tarih : 2026-07-01 18:44:15
+
+
+============================================================
+  Dataset Örnekleri (eğitim seti)
+  Accuracy: 300/300  (100.0%)
+============================================================
+
+  Confusion Matrix (satır=gerçek, sütun=tahmin):
+                    code  research         ?
+  ------------------------------------------
+  code               150         0         0
+  research             0       150         0
+
+  Per-class accuracy:
+    code       150/150  [██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████]
+    research   150/150  [██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████]
+
+  Hata yok!
+
+============================================================
+  Edge-Case Örnekleri (görmediği)
+  Accuracy: 31/37  (83.8%)
+============================================================
+
+  Confusion Matrix (satır=gerçek, sütun=tahmin):
+                    code  research         ?
+  ------------------------------------------
+  code                19         5         0
+  research             1        12         0
+
+  Per-class accuracy:
+    code       19/24  [███████████████████░░░░░]
+    research   12/13  [████████████░]
+
+  Yanlış tahminler (6):
+    [gerçek=code       tahmin=research  ] neden hata veriyor
+    [gerçek=code       tahmin=research  ] bunu nasıl yapabilirim
+    [gerçek=research   tahmin=code      ] bu fonksiyonu optimize etmeli miyim
+    [gerçek=code       tahmin=research  ] bu kodu incele
+    [gerçek=code       tahmin=research  ] neden bu kadar yavaş
+    [gerçek=code       tahmin=research  ] şu hata ne anlama geliyor ve nasıl çözerim
+
+============================================================
+  TOPLAM
+  Accuracy: 331/337  (98.2%)
+============================================================
+
+  Confusion Matrix (satır=gerçek, sütun=tahmin):
+                    code  research         ?
+  ------------------------------------------
+  code               169         5         0
+  research             1       162         0
+
+  Per-class accuracy:
+    code       169/174  [█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████░░░░░]
+    research   162/163  [██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████░]
+
+  Yanlış tahminler (6):
+    [gerçek=code       tahmin=research  ] neden hata veriyor
+    [gerçek=code       tahmin=research  ] bunu nasıl yapabilirim
+    [gerçek=research   tahmin=code      ] bu fonksiyonu optimize etmeli miyim
+    [gerçek=code       tahmin=research  ] bu kodu incele
+    [gerçek=code       tahmin=research  ] neden bu kadar yavaş
+    [gerçek=code       tahmin=research  ] şu hata ne anlama geliyor ve nasıl çözerim

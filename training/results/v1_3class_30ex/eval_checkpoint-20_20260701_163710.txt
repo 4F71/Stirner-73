@@ -1,0 +1,98 @@
+Model : training/router-lora/checkpoint-20
+Tarih : 2026-07-01 16:37:10
+
+
+============================================================
+  Dataset Örnekleri (eğitim seti)
+  Accuracy: 16/30  (53.3%)
+============================================================
+
+  Confusion Matrix (satır=gerçek, sütun=tahmin):
+                    code  codebase  research         ?
+  ----------------------------------------------------
+  code                 6         2         2         0
+  codebase             0         0        10         0
+  research             0         0        10         0
+
+  Per-class accuracy:
+    code       6/10  [██████░░░░]
+    codebase   0/10  [░░░░░░░░░░]
+    research   10/10  [██████████]
+
+  Yanlış tahminler (14):
+    [gerçek=code       tahmin=research  ] bu hatayı düzelt
+    [gerçek=code       tahmin=codebase  ] workspace/train.py dosyasını oluştur ve çalıştır
+    [gerçek=code       tahmin=research  ] run_agent_loop'taki timeout parametresini refactor et
+    [gerçek=code       tahmin=codebase  ] requirements.txt güncelle ve setup.py oluştur
+    [gerçek=codebase   tahmin=research  ] run_agent_loop nerede implement edilmiş
+    [gerçek=codebase   tahmin=research  ] bu projenin mimari yapısını açıkla
+    [gerçek=codebase   tahmin=research  ] tool_executor hangi dosyada tanımlı
+    [gerçek=codebase   tahmin=research  ] son commit ne değiştirdi
+    [gerçek=codebase   tahmin=research  ] agents/coder.py içindeki system prompt ne içeriyor
+    [gerçek=codebase   tahmin=research  ] ModelManager nasıl çalışıyor, modeli ne zaman boşaltıyor
+    [gerçek=codebase   tahmin=research  ] RAG indexleme için hangi embedding modeli kullanılıyor
+    [gerçek=codebase   tahmin=research  ] rollback mekanizması nasıl çalışıyor, hangi dosyaları etkili
+    [gerçek=codebase   tahmin=research  ] VisionAgent bu repoda nerede kullanılıyor
+    [gerçek=codebase   tahmin=research  ] bu repodaki test dosyaları ne kadar kapsıyor
+
+============================================================
+  Edge-Case Örnekleri (görmediği)
+  Accuracy: 10/15  (66.7%)
+============================================================
+
+  Confusion Matrix (satır=gerçek, sütun=tahmin):
+                    code  codebase  research         ?
+  ----------------------------------------------------
+  code                 3         0         2         0
+  codebase             0         2         3         0
+  research             0         0         5         0
+
+  Per-class accuracy:
+    code       3/5  [███░░]
+    codebase   2/5  [██░░░]
+    research   5/5  [█████]
+
+  Yanlış tahminler (5):
+    [gerçek=code       tahmin=research  ] add type hints to this file
+    [gerçek=code       tahmin=research  ] şu dosyayı refactor et
+    [gerçek=codebase   tahmin=research  ] bu repoda authentication nerede?
+    [gerçek=codebase   tahmin=research  ] where is the main entry point?
+    [gerçek=codebase   tahmin=research  ] what does the ModelManager class do
+
+============================================================
+  TOPLAM
+  Accuracy: 26/45  (57.8%)
+============================================================
+
+  Confusion Matrix (satır=gerçek, sütun=tahmin):
+                    code  codebase  research         ?
+  ----------------------------------------------------
+  code                 9         2         4         0
+  codebase             0         2        13         0
+  research             0         0        15         0
+
+  Per-class accuracy:
+    code       9/15  [█████████░░░░░░]
+    codebase   2/15  [██░░░░░░░░░░░░░]
+    research   15/15  [███████████████]
+
+  Yanlış tahminler (19):
+    [gerçek=code       tahmin=research  ] bu hatayı düzelt
+    [gerçek=code       tahmin=codebase  ] workspace/train.py dosyasını oluştur ve çalıştır
+    [gerçek=code       tahmin=research  ] run_agent_loop'taki timeout parametresini refactor et
+    [gerçek=code       tahmin=codebase  ] requirements.txt güncelle ve setup.py oluştur
+    [gerçek=codebase   tahmin=research  ] run_agent_loop nerede implement edilmiş
+    [gerçek=codebase   tahmin=research  ] bu projenin mimari yapısını açıkla
+    [gerçek=codebase   tahmin=research  ] tool_executor hangi dosyada tanımlı
+    [gerçek=codebase   tahmin=research  ] son commit ne değiştirdi
+    [gerçek=codebase   tahmin=research  ] agents/coder.py içindeki system prompt ne içeriyor
+    [gerçek=codebase   tahmin=research  ] ModelManager nasıl çalışıyor, modeli ne zaman boşaltıyor
+    [gerçek=codebase   tahmin=research  ] RAG indexleme için hangi embedding modeli kullanılıyor
+    [gerçek=codebase   tahmin=research  ] rollback mekanizması nasıl çalışıyor, hangi dosyaları etkili
+    [gerçek=codebase   tahmin=research  ] VisionAgent bu repoda nerede kullanılıyor
+    [gerçek=codebase   tahmin=research  ] bu repodaki test dosyaları ne kadar kapsıyor
+    [gerçek=code       tahmin=research  ] add type hints to this file
+    [gerçek=code       tahmin=research  ] şu dosyayı refactor et
+    [gerçek=codebase   tahmin=research  ] bu repoda authentication nerede?
+    [gerçek=codebase   tahmin=research  ] where is the main entry point?
+    [gerçek=codebase   tahmin=research  ] what does the ModelManager class do

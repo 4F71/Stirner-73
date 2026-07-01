@@ -1,6 +1,6 @@
 """
 Router LoRA Fine-Tune — Qwen2.5-1.5B-Instruct
-3-sınıf Türkçe intent classifier: code | codebase | research
+2-sınıf intent classifier: code | research
 
 Gereksinimler:
   pip install "unsloth[cu124]" transformers datasets peft accelerate
@@ -28,72 +28,46 @@ from pathlib import Path
 MODEL_NAME   = "unsloth/Qwen2.5-1.5B-Instruct"
 OUTPUT_DIR   = Path(__file__).parent / "router-lora"
 GGUF_PATH    = Path(__file__).parent / "router-q4.gguf"
-DATASET_FILE = Path(__file__).parent / "dataset.jsonl"
+DATASET_FILE = Path(__file__).parent / "data" / "cursor_dataset.jsonl"
+RUN_NAME     = "v2_2class_300ex"     # results/ altında klasör adı; yeni eğitimde güncelle
+RESULTS_DIR  = Path(__file__).parent / "results" / RUN_NAME
 
 LORA_R       = 8
 LORA_ALPHA   = 16
 LORA_DROPOUT = 0.05
 MAX_SEQ_LEN  = 256
 
-TRAIN_EPOCHS = 5          # 30 örnekle 5 epoch yeterli; overfitting OK (kapalı domain)
+TRAIN_EPOCHS = 15         # 300 örnekle 15 epoch; 5 epoch yetmiyordu
 BATCH_SIZE   = 4
 GRAD_ACCUM   = 2
 LR           = 3e-4
 
-# ---------------------------------------------------------------------------
-# Unsloth yükleme — CPU fallback ile kompatibil
-# ---------------------------------------------------------------------------
-try:
-    from unsloth import FastLanguageModel
-    _USE_UNSLOTH = True
-except (ImportError, NotImplementedError, Exception) as _e:
-    print(f"[WARN] unsloth yüklenemedi ({type(_e).__name__}: {_e})")
-    print("[WARN] Standart transformers kullanılıyor (daha yavaş).")
-    _USE_UNSLOTH = False
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-
 import torch
 from datasets import Dataset
-from transformers import Trainer, TrainingArguments, DataCollatorForLanguageModeling
+from peft import LoraConfig, get_peft_model, TaskType
+from transformers import (
+    AutoModelForCausalLM, AutoTokenizer,
+    Trainer, TrainingArguments,
+)
 
 
 def load_model_and_tokenizer():
-    if _USE_UNSLOTH:
-        model, tokenizer = FastLanguageModel.from_pretrained(
-            model_name=MODEL_NAME,
-            max_seq_length=MAX_SEQ_LEN,
-            dtype=None,          # auto-detect
-            load_in_4bit=True,   # 8GB VRAM'e sığdır
-        )
-        model = FastLanguageModel.get_peft_model(
-            model,
-            r=LORA_R,
-            target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
-                             "gate_proj", "up_proj", "down_proj"],
-            lora_alpha=LORA_ALPHA,
-            lora_dropout=LORA_DROPOUT,
-            bias="none",
-            use_gradient_checkpointing="unsloth",
-            random_state=42,
-        )
-    else:
-        from peft import LoraConfig, get_peft_model, TaskType
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
-        model = AutoModelForCausalLM.from_pretrained(
-            MODEL_NAME,
-            torch_dtype=torch.float16,
-            device_map="auto",
-            trust_remote_code=True,
-        )
-        lora_cfg = LoraConfig(
-            r=LORA_R,
-            lora_alpha=LORA_ALPHA,
-            lora_dropout=LORA_DROPOUT,
-            target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
-            task_type=TaskType.CAUSAL_LM,
-        )
-        model = get_peft_model(model, lora_cfg)
-
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        MODEL_NAME,
+        torch_dtype=torch.float16,
+        device_map="auto",
+        trust_remote_code=True,
+    )
+    lora_cfg = LoraConfig(
+        r=LORA_R,
+        lora_alpha=LORA_ALPHA,
+        lora_dropout=LORA_DROPOUT,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+        task_type=TaskType.CAUSAL_LM,
+    )
+    model = get_peft_model(model, lora_cfg)
+    model.print_trainable_parameters()
     return model, tokenizer
 
 
@@ -171,22 +145,12 @@ def train(model, tokenizer, dataset):
     model.save_pretrained(str(OUTPUT_DIR))
     tokenizer.save_pretrained(str(OUTPUT_DIR))
     print(f"[OK] Adapter kaydedildi: {OUTPUT_DIR}")
+    return trainer
 
 
 def export_gguf(model, tokenizer):
-    """GGUF export: unsloth varsa built-in, yoksa adapter merge + llama.cpp convert."""
-    if _USE_UNSLOTH:
-        print("[INFO] GGUF export (Q4_K_M) başlıyor...")
-        model.save_pretrained_gguf(
-            str(GGUF_PATH.with_suffix("")),
-            tokenizer,
-            quantization_method="q4_k_m",
-        )
-        print(f"[OK] GGUF: {GGUF_PATH}")
-        return
-
-    # Unsloth yok — adapter'ı base model ile merge et, merged/ olarak kaydet.
-    print("[INFO] Adapter merge ediliyor (unsloth yok, llama.cpp ile export edilecek)...")
+    """Adapter'ı base model ile merge et, merged/ olarak kaydet. Sonra llama.cpp ile GGUF'a çevir."""
+    print("[INFO] Adapter merge ediliyor...")
     from peft import PeftModel
     merged_dir = Path(__file__).parent / "router-merged"
 
@@ -208,23 +172,58 @@ def export_gguf(model, tokenizer):
     print(f"  3. ollama create free-router -f training/Modelfile.router")
 
 
-def run_quick_eval(model, tokenizer):
-    """Training bittikten sonra 3 örnek üzerinde hızlı doğruluk kontrolü."""
-    if _USE_UNSLOTH:
-        FastLanguageModel.for_inference(model)
+def plot_loss(trainer, out_dir: Path) -> None:
+    """Training loss eğrisini PNG olarak kaydet."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("[WARN] matplotlib bulunamadı, loss grafiği atlandı. pip install matplotlib")
+        return
 
+    history = trainer.state.log_history
+    steps  = [e["step"] for e in history if "loss" in e]
+    losses = [e["loss"] for e in history if "loss" in e]
+    if not steps:
+        print("[WARN] Loss verisi bulunamadı, grafik atlandı.")
+        return
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.plot(steps, losses, marker="o", linewidth=1.5, markersize=3, color="#4C72B0")
+    ax.set_xlabel("Step")
+    ax.set_ylabel("Loss")
+    ax.set_title(f"Router LoRA — Training Loss  ({TRAIN_EPOCHS} epoch, {len(steps)} log noktası)")
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+
+    assets_dir = out_dir / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    import datetime
+    ts   = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = assets_dir / f"loss_curve_{ts}.png"
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"[OK] Loss eğrisi kaydedildi: {path}")
+
+
+def run_quick_eval(model, tokenizer):
+    """Training bittikten sonra birkaç örnek üzerinde hızlı doğruluk kontrolü."""
     import torch
     probes = [
-        ("bu fonksiyonu yaz",            "code"),
-        ("run_agent_loop nerede",         "codebase"),
-        ("transformer nedir",             "research"),
+        ("bu fonksiyonu yaz",        "code"),
+        ("hata var düzelt",          "code"),
+        ("çalışmıyor",               "code"),
+        ("transformer nedir",        "research"),
+        ("neden async kullanmalıyım","research"),
+        ("pytest mi unittest mi",    "research"),
     ]
     correct = 0
     for prompt, expected in probes:
         messages = [
             {"role": "system", "content":
              "Sen bir intent sınıflandırıcısın. SADECE JSON döndür: "
-             "{\"intent\": \"code\"} | {\"intent\": \"codebase\"} | {\"intent\": \"research\"}"},
+             "{\"intent\": \"code\"} | {\"intent\": \"research\"}"},
             {"role": "user", "content": prompt},
         ]
         enc = tokenizer.apply_chat_template(
@@ -246,7 +245,7 @@ def run_quick_eval(model, tokenizer):
         print(f"  {ok}  '{prompt}' → {intent}  (beklenen: {expected})")
         if intent == expected:
             correct += 1
-    print(f"\n  Quick-eval: {correct}/{len(probes)}")
+    print(f"\n  Quick-eval: {correct}/{len(probes)} ({'%.0f' % (correct/len(probes)*100)}%)")
 
 
 if __name__ == "__main__":
@@ -259,9 +258,11 @@ if __name__ == "__main__":
 
     if args.eval_only:
         print("[INFO] Eval-only modu — training atlandı")
+        trainer = None
     else:
         dataset = load_dataset(tokenizer)
-        train(model, tokenizer, dataset)
+        trainer = train(model, tokenizer, dataset)
+        plot_loss(trainer, RESULTS_DIR)
 
     run_quick_eval(model, tokenizer)
 

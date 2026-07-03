@@ -1,6 +1,8 @@
-"""Read-only git tools — gives agents recent-change context without touching history."""
+"""Git tools — read-only context araçları + commit/push yazma araçları."""
 
+import os
 import subprocess
+import tempfile
 
 from tools.file_ops import PROJECT_ROOT
 
@@ -50,6 +52,30 @@ def git_log(path: str = "", n: int = 10) -> str:
 def git_status() -> str:
     """Shows staged/unstaged/untracked file state (short format)."""
     return _run_git(["status", "--short"])
+
+
+def git_add(path: str) -> str:
+    """Stages a file or directory for commit."""
+    return _run_git(["add", "--", path])
+
+
+def git_commit(message: str) -> str:
+    """Commits staged changes with the given message (UTF-8 safe, supports Turkish)."""
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", encoding="utf-8", delete=False)
+    try:
+        tmp.write(message)
+        tmp.close()
+        return _run_git(["commit", "-F", tmp.name])
+    finally:
+        os.unlink(tmp.name)
+
+
+def git_push(remote: str = "origin", branch: str = "") -> str:
+    """Pushes commits to remote. Defaults to 'origin'; branch defaults to current branch."""
+    args = ["push", remote]
+    if branch:
+        args.append(branch)
+    return _run_git(args)
 
 
 GIT_TOOLS_SCHEMA = [
@@ -122,9 +148,58 @@ GIT_TOOLS_SCHEMA = [
     },
 ]
 
+GIT_TOOLS_SCHEMA += [
+    {
+        "type": "function",
+        "function": {
+            "name": "git_add",
+            "description": "Stage a file or directory for the next commit (git add).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Relative path to stage (e.g. 'agents/coder.py' or '.')"},
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "git_commit",
+            "description": "Commit staged changes with a message. UTF-8 safe — supports Turkish characters.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string", "description": "Commit mesajı (conventional commit formatında: 'fix(kapsam): açıklama')."},
+                },
+                "required": ["message"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "git_push",
+            "description": "Push committed changes to remote (default: origin, current branch).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "remote": {"type": "string", "description": "Remote adı (varsayılan: 'origin')."},
+                    "branch": {"type": "string", "description": "Branch adı (boş bırakılırsa mevcut branch)."},
+                },
+                "required": [],
+            },
+        },
+    },
+]
+
 GIT_TOOL_EXECUTOR = {
     "git_diff": git_diff,
     "git_diff_staged": git_diff_staged,
     "git_log": git_log,
     "git_status": git_status,
+    "git_add": git_add,
+    "git_commit": git_commit,
+    "git_push": git_push,
 }

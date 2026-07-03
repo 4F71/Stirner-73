@@ -514,6 +514,36 @@ def _with_memory(prompt: str) -> str:
     return f"[Proje hafızası:\n{recent}]\n\n{prompt}"
 
 
+def _run_exit_quiz(client: OllamaClient, model: str, messages: list[dict]) -> None:
+    """Oturum kapanırken yapılan işler hakkında 1-2 Sokratik soru sorar."""
+    exchanges = [m for m in messages if m.get("role") in ("user", "assistant") and m.get("content")]
+    if len(exchanges) < 2:
+        return
+
+    quiz_prompt = (
+        "Bu oturumda yapılan çalışmaya bakarak, kullanıcının gerçekten anlayıp anlamadığını "
+        "ölçmek için 1 adet kısa, düşündürücü Sokratik soru sor. "
+        "Soruyu SADECE Türkçe yaz, başka hiçbir şey ekleme. "
+        "Cevabı verme, sadece soruyu sor."
+    )
+    try:
+        resp = client.chat(
+            model,
+            [{"role": "system", "content": quiz_prompt}] + exchanges[-10:],
+            options={"temperature": 0.7},
+        )
+        question = resp.get("message", {}).get("content", "").strip()
+        if question:
+            console.print(f"\n[bold yellow]🎓 Çıkış Sorusu:[/] {question}")
+            try:
+                answer = click.prompt("Cevabın", prompt_suffix=" ")
+                console.print(f"[dim]Cevabın kaydedildi. İyi çalışmalar![/]")
+            except (KeyboardInterrupt, click.exceptions.Abort):
+                pass
+    except Exception:
+        pass
+
+
 def _parse_session(raw: str) -> list[dict]:
     """Kaydedilmis bir session'i mesaj listesine cevirir.
 
@@ -736,6 +766,7 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
         "/models":   "Çekili modelleri listele",
         "/ctx":      "num_ctx override  (/ctx reset ile sıfırla)",
         "/status":   "Aktif shell modelini göster",
+        "/correct":  "Son promptun yanlış yönlendirilmesini düzelt",
         "/remember": "Karar/not kaydet",
         "/memory":   "Son N kaydı listele veya metin ile ara",
         "/audit":    "Denetim izini göster veya doğrula",
@@ -799,8 +830,11 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
         if not prompt:
             continue
 
-        if prompt == "/exit":
+        if prompt in ("/exit", "/exit --quiz") or prompt.startswith("/exit "):
+            quiz_mode = "--quiz" in prompt
             _auto_remember_session()
+            if quiz_mode:
+                _run_exit_quiz(client, model, messages)
             break
         elif prompt == "/clear":
             click.clear()
@@ -862,6 +896,21 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
             else:
                 console.print(f"[dim]🧠 {do_remember(text)}[/]")
                 remembered_notes.append(text)
+            continue
+        elif prompt.startswith("/correct"):
+            from tools.feedback_ops import record_correction
+            arg = prompt[len("/correct"):].strip()
+            parts = arg.split(None, 1)
+            if not parts:
+                console.print("[dim]Kullanım: /correct <intent>  — son promptu düzelt[/]")
+                console.print("[dim]Geçerli intent: code, research, codebase[/]")
+            else:
+                intent = parts[0].lower()
+                last_user = next(
+                    (m["content"] for m in reversed(messages) if m.get("role") == "user"),
+                    ""
+                )
+                console.print(f"[dim]{record_correction(last_user, intent)}[/]")
             continue
         elif prompt.startswith("/memory"):
             from tools.memory_ops import recall
@@ -1049,6 +1098,7 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
                 ("/ctx <n>|reset", "num_ctx override"),
                 ("/status", "Yüklü modeli göster"),
                 ("── Hafıza & Araç ──", ""),
+                ("/correct <intent>", "Son promptun yanlış yönlendirilmesini düzelt (code/research/codebase)"),
                 ("/remember <metin>", "Karar/not kaydet"),
                 ("/memory [N|metin]", "Son N kaydı listele veya metin ile ara"),
                 ("/audit [N|verify]", "Denetim izini göster veya doğrula"),
@@ -1232,6 +1282,22 @@ def doctor():
     """Gercek VRAM/RAM kullanimini ve yuklu modelleri olcer (nvidia-smi + ollama ps)."""
     from tools.system_ops import run_doctor
     console.print(run_doctor())
+
+
+@free.command()
+@click.option("--test", is_flag=True, help="Değişiklik algılandığında pytest'i otomatik çalıştır.")
+def watch(test: bool):
+    """Proje dosyalarını izler; değişiklik olunca git status + isteğe bağlı pytest basar."""
+    from tools.watch_ops import watch as do_watch
+    do_watch(run_tests=test, console_print=console.print)
+
+
+@free.command(name="compare-runs")
+@click.option("--run", default="", help="Belirli bir run adını filtrele (kismi isim yeterli).")
+def compare_runs(run: str):
+    """training/results/ altındaki eval dosyalarını karşılaştırır."""
+    from tools.compare_ops import compare_runs as do_compare
+    console.print(do_compare(run))
 
 
 @free.command()

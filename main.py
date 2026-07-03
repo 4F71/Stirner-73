@@ -767,6 +767,8 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
         "/ctx":      "num_ctx override  (/ctx reset ile sıfırla)",
         "/status":   "Aktif shell modelini göster",
         "/correct":  "Son promptun yanlış yönlendirilmesini düzelt",
+        "/retry":    "Son promptu tekrar çalıştır  (/retry --model <isim> ile farklı modelde)",
+        "/pop":      "Son soru-cevap çiftini geçmişten çıkar",
         "/remember": "Karar/not kaydet",
         "/memory":   "Son N kaydı listele veya metin ile ara",
         "/audit":    "Denetim izini göster veya doğrula",
@@ -778,9 +780,30 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
         "/log":      "Son N log satırı",
     }
 
+    _cached_model_names: list[str] = []
+
+    def _get_model_names() -> list[str]:
+        if not _cached_model_names:
+            try:
+                _cached_model_names.extend(
+                    m.get("name", "") for m in client.list_models()
+                )
+            except Exception:
+                pass
+        return _cached_model_names
+
     class _ShellCompleter(Completer):
         def get_completions(self, document, complete_event):
             text = document.text_before_cursor
+
+            # /retry --model <tab> → model listesinden tamamla
+            if text.startswith("/retry --model "):
+                prefix = text[len("/retry --model "):]
+                for name in _get_model_names():
+                    if name.startswith(prefix):
+                        yield Completion(name, start_position=-len(prefix), display_meta="model")
+                return
+
             if not text.startswith("/"):
                 return
             for cmd, desc in _CMD_MAP.items():
@@ -896,6 +919,48 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
             else:
                 console.print(f"[dim]🧠 {do_remember(text)}[/]")
                 remembered_notes.append(text)
+            continue
+        elif prompt.startswith("/retry"):
+            arg = prompt[len("/retry"):].strip()
+            retry_model = model
+            if arg.startswith("--model "):
+                retry_model = arg[len("--model "):].strip()
+                try:
+                    manager.ensure_loaded(retry_model)
+                except Exception as e:
+                    console.print(f"[bold red]Model yüklenemedi:[/] {e}")
+                    continue
+            last_user = next(
+                (m["content"] for m in reversed(messages) if m.get("role") == "user"),
+                None,
+            )
+            if not last_user:
+                console.print("[dim]Tekrar çalıştırılacak prompt bulunamadı.[/]")
+                continue
+            # Son assistant cevabını geçmişten çıkar (varsa)
+            if messages and messages[-1].get("role") == "assistant":
+                messages.pop()
+            if retry_model != model:
+                console.print(f"[dim]🔄 /retry → {retry_model}[/]")
+            try:
+                result = run_agent_loop(
+                    client, retry_model, messages,
+                    tools_schema=tools_schema, tool_executor=tool_executor,
+                )
+            except KeyboardInterrupt:
+                console.print("\n[dim]İptal edildi.[/]")
+            continue
+        elif prompt == "/pop":
+            # Son user + assistant çiftini geçmişten sil
+            removed = 0
+            for role in ("assistant", "user"):
+                if len(messages) > 1 and messages[-1].get("role") == role:
+                    messages.pop()
+                    removed += 1
+            if removed:
+                console.print(f"[dim]↩️  Son {removed} mesaj geçmişten silindi.[/]")
+            else:
+                console.print("[dim]Silinecek mesaj yok.[/]")
             continue
         elif prompt.startswith("/correct"):
             from tools.feedback_ops import record_correction
@@ -1098,6 +1163,8 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
                 ("/ctx <n>|reset", "num_ctx override"),
                 ("/status", "Yüklü modeli göster"),
                 ("── Hafıza & Araç ──", ""),
+                ("/retry [--model <isim>]", "Son promptu tekrar çalıştır, opsiyonel farklı modelle"),
+                ("/pop", "Son soru-cevap çiftini geçmişten çıkar"),
                 ("/correct <intent>", "Son promptun yanlış yönlendirilmesini düzelt (code/research/codebase)"),
                 ("/remember <metin>", "Karar/not kaydet"),
                 ("/memory [N|metin]", "Son N kaydı listele veya metin ile ara"),
@@ -1109,6 +1176,20 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
                 ("/doctor", "VRAM/RAM kullanımını ölç"),
                 ("/stats [model]", "Token/s performans özeti"),
                 ("/log [N]", "Son N log satırı"),
+                ("── CLI Komutları (shell dışında) ──", ""),
+                ("free code <prompt>", "Tek seferlik kodlama görevi"),
+                ("free debug <prompt>", "Tek seferlik hata ayıklama"),
+                ("free research <prompt>", "Tek seferlik araştırma"),
+                ("free review [--staged]", "Kod inceleme; --staged ile sadece commit edilecekler"),
+                ("free council <prompt>", "Coder → Reviewer → Coder tartışma zinciri"),
+                ("free explain <prompt>", "Sokratik öğrenme modu"),
+                ("free vision <görüntü> <soru>", "Görüntü analizi"),
+                ("free scaffold <isim>", "Proje iskeleti oluştur (generic/torch-experiment/research)"),
+                ("free watch [--test]", "Dosya değişikliklerini izle, isteğe bağlı pytest"),
+                ("free compare-runs", "Eğitim sonuçlarını karşılaştır"),
+                ("free index [yollar]", "RAG indeksini güncelle"),
+                ("free doctor", "VRAM/RAM ve yüklü modelleri göster"),
+                ("free stats [model]", "Token/s performans özeti"),
             ]
             for cmd, desc in _HELP:
                 if desc == "":

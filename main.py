@@ -694,6 +694,14 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
         agent_config.toggle_verbose()
         event.app.invalidate()  # toolbar'u yenile
 
+    @kb.add('tab')
+    def accept_suggestion_or_complete(event):
+        buf = event.app.current_buffer
+        if buf.suggestion:
+            buf.insert_text(buf.suggestion.text)
+        else:
+            buf.start_completion(select_first=False)
+
     def bottom_toolbar():
         mode = " 🔍 ON" if agent_config.verbose else ""
         confirm_mode = " ⚠️ ON" if agent_config.confirm_writes else ""

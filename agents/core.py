@@ -387,16 +387,14 @@ def run_agent_loop(
         if config.verbose and content:
             console.print(f"\n[dim]⏱️  Süre: {elapsed:.1f}s[/]")
             console.print(f"[dim]── RAW JSON / TOOL PARSER SONRASI ──\n{content}[/]")
-        
-        # Print any conversational text if we didn't already stream it
-        if content and not config.verbose:
-            from rich.markdown import Markdown
-            console.print(f"\n[bold cyan]🤖 {model}[/] [dim]({elapsed:.1f}s)[/]")
-            console.print(Markdown(content))
 
-        # If no tools called, we are done — return content so callers
-        # (council, single-shot CLI) can display or chain it if needed.
+        # If no tools called, this is the final answer — print and return.
+        # When tool_calls IS present, content is pre-tool narration noise; suppress it.
         if not tool_calls:
+            if content and not config.verbose:
+                from rich.markdown import Markdown
+                console.print(f"\n[bold cyan]🤖 {model}[/] [dim]({elapsed:.1f}s)[/]")
+                console.print(Markdown(content))
             return content
 
         for call in tool_calls:

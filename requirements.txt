@@ -12,3 +12,4 @@ beautifulsoup4>=4.12
 chromadb>=0.5
 langchain-text-splitters>=0.0.2
 psutil>=5.9
+watchdog>=4.0

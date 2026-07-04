@@ -22,6 +22,8 @@ class Config:
 ''',
         "train.py": '''\
 """Egitim dongusu."""
+import os
+
 import torch
 from config import Config
 
@@ -39,7 +41,6 @@ def train(cfg: Config) -> None:
 
 
 if __name__ == "__main__":
-    import os
     train(Config())
 ''',
         "eval.py": '''\

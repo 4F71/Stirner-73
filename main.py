@@ -712,6 +712,10 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
     remembered_notes: list[str] = []
     # Her tur taze base_system üzerine hafıza eklenir; buradan başlar.
     base_system = CODE_SYSTEM_PROMPT
+    # /retry gibi handler'lar ilk prompt gelmeden önce kullanabilir — varsayılan coder.
+    tools_schema, tool_executor = CODER_TOOLS_SCHEMA, CODER_TOOL_EXECUTOR
+    # /correct için: router'ın son seçtiği intent'i saklar (fine-tune dataseti)
+    _last_intent: str = "code"
 
     # RAG index yasini kontrol et ve gerekirse uyard
     _warn_rag_index_age()
@@ -975,7 +979,7 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
                     (m["content"] for m in reversed(messages) if m.get("role") == "user"),
                     ""
                 )
-                console.print(f"[dim]{record_correction(last_user, intent)}[/]")
+                console.print(f"[dim]{record_correction(last_user, intent, wrong_intent=_last_intent)}[/]")
             continue
         elif prompt.startswith("/memory"):
             from tools.memory_ops import recall
@@ -1058,9 +1062,13 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
             console.print(run_doctor())
             continue
         elif prompt.startswith("/stats"):
-            from tools.perf_ops import perf_stats
             arg = prompt[len("/stats"):].strip()
-            console.print(perf_stats(arg))
+            if arg == "feedback":
+                from tools.feedback_ops import feedback_stats
+                console.print(feedback_stats())
+            else:
+                from tools.perf_ops import perf_stats
+                console.print(perf_stats(arg))
             continue
         elif prompt == "/status":
             if pinned_model:
@@ -1235,13 +1243,14 @@ def shell(model: str, confirm_writes: bool, no_network: bool, ctx: int | None):
                 target_model = DEFAULT_CODER_MODEL
             else:
                 intent = _keyword_route(prompt) or route_prompt(client, model, prompt)
+                _last_intent = intent
                 if intent == "codebase":
                     target_model = DEFAULT_CODEBASE_MODEL
                 elif intent == "research":
                     target_model = DEFAULT_RESEARCH_MODEL
                 else:
                     target_model = DEFAULT_CODER_MODEL
-        
+
         _model_load_failed = False
         if target_model != model:
             console.print(f"[dim]🔄 Ajan değiştiriliyor: {intent.upper()} ({target_model})[/]")

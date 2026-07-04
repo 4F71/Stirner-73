@@ -59,8 +59,10 @@ class _ChangeHandler(FileSystemEventHandler):
         # Sadece .py dosyaları + .gitignore dışı değişiklikler
         if not (src.endswith(".py") or src.endswith(".md") or src.endswith(".jsonl")):
             return
-        # logs/ ve __pycache__/ değişikliklerini yoksay
-        if any(skip in src for skip in ["\\logs\\", "/__pycache__/", "\\.git\\"]):
+        # logs/ ve __pycache__/ değişikliklerini yoksay (platform-bağımsız)
+        src_path = Path(src)
+        skip_parts = {"logs", "__pycache__", ".git"}
+        if any(part in skip_parts for part in src_path.parts):
             return
         now = time.time()
         with self._lock:

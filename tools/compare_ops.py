@@ -21,6 +21,10 @@ def _parse_eval_file(path: Path) -> dict:
     if m:
         result["date"] = m.group(1).strip()
 
+    m = _RE_MODEL.search(text)
+    if m:
+        result["model"] = m.group(1).strip()
+
     # Dosyada üç blok var: eğitim seti, edge-case, toplam
     # Her "Accuracy:" satırını sırayla al
     matches = _RE_ACCURACY.findall(text)
@@ -54,21 +58,23 @@ def compare_runs(run_filter: str = "") -> str:
     rows.sort(key=lambda r: r.get("total_pct", 0), reverse=True)
 
     # Kolon genişlikleri
-    col_run  = max(len(r["run"]) for r in rows)
-    col_date = max(len(r.get("date", "-")) for r in rows)
-    col_tr   = max(len(r.get("train_acc", "-")) for r in rows)
-    col_ed   = max(len(r.get("edge_acc", "-")) for r in rows)
-    col_tot  = max(len(r.get("total_acc", "-")) for r in rows)
+    col_run   = max(len(r["run"]) for r in rows)
+    col_model = max(len(r.get("model", "-")) for r in rows)
+    col_date  = max(len(r.get("date", "-")) for r in rows)
+    col_tr    = max(len(r.get("train_acc", "-")) for r in rows)
+    col_ed    = max(len(r.get("edge_acc", "-")) for r in rows)
+    col_tot   = max(len(r.get("total_acc", "-")) for r in rows)
 
     header = (
-        f"{'Run':<{col_run}}  {'Tarih':<{col_date}}  "
+        f"{'Run':<{col_run}}  {'Model':<{col_model}}  {'Tarih':<{col_date}}  "
         f"{'Eğitim':<{col_tr}}  {'Edge-Case':<{col_ed}}  {'Toplam':<{col_tot}}"
     )
     sep = "─" * len(header)
     lines = [sep, header, sep]
     for r in rows:
         lines.append(
-            f"{r['run']:<{col_run}}  {r.get('date','-'):<{col_date}}  "
+            f"{r['run']:<{col_run}}  {r.get('model','-'):<{col_model}}  "
+            f"{r.get('date','-'):<{col_date}}  "
             f"{r.get('train_acc','-'):<{col_tr}}  "
             f"{r.get('edge_acc','-'):<{col_ed}}  "
             f"{r.get('total_acc','-'):<{col_tot}}"

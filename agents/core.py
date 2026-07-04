@@ -110,11 +110,16 @@ class OllamaClient:
         return resp.json().get("models", [])
 
     def unload(self, model_id: str) -> None:
-        requests.post(
-            f"{self.host}/api/generate",
-            json={"model": model_id, "prompt": "", "keep_alive": 0},
-            timeout=30,
-        )
+        try:
+            resp = requests.post(
+                f"{self.host}/api/generate",
+                json={"model": model_id, "prompt": "", "keep_alive": 0},
+                timeout=30,
+            )
+            resp.raise_for_status()
+        except Exception as exc:
+            logger.warning("unload failed model=%s error=%s", model_id, exc)
+            return
         logger.info("unloaded model=%s", model_id)
         if config.audit_enabled:
             append_event("model_unload", {"model": model_id})
@@ -142,9 +147,12 @@ class OllamaClient:
         return resp.json()
 
     def chat_stream(self, model: str, messages: list[dict],
+                    tools: list[dict] | None = None,
                     options: dict | None = None) -> dict:
         """Streams tokens to stdout in real-time, returns assembled message dict."""
         payload = {"model": model, "messages": messages, "stream": True}
+        if tools:
+            payload["tools"] = tools
         if options:
             payload["options"] = options
         resp = requests.post(f"{self.host}/api/chat", json=payload,
@@ -178,6 +186,7 @@ class OllamaClient:
             "message": final_message,
             "eval_count": final_chunk.get("eval_count", 0),
             "eval_duration": final_chunk.get("eval_duration", 0),
+            "prompt_eval_count": final_chunk.get("prompt_eval_count", 0),
             "done_reason": final_chunk.get("done_reason", ""),
         }
 
@@ -305,10 +314,10 @@ def run_agent_loop(
         try:
             if config.verbose:
                 console.print(f"[dim]\u2500\u2500 TUR {turn+1}/{max_turns} | model={model} | mesaj_sayısı={len(history)} \u2500\u2500[/]")
-                response = client.chat_stream(model, history, options=options)
+                response = client.chat_stream(model, history, tools=tools_schema or None, options=options)
             else:
                 with console.status(f"[bold cyan]{model} düşünüyor...[/]"):
-                    response = client.chat(model, history, options=options)
+                    response = client.chat(model, history, tools=tools_schema or None, options=options)
         except Exception as _http_exc:
             err = str(_http_exc)
             # 500: Ollama model crash'i (genellikle OOM). CLI çökmemeli.
@@ -354,13 +363,12 @@ def run_agent_loop(
             if json_str is not None:
                 try:
                     parsed = json.loads(json_str)
-                    if "name" in parsed and "arguments" in parsed:
+                    if isinstance(parsed.get("name"), str) and isinstance(parsed.get("arguments"), dict):
                         tool_calls = [{"function": parsed}]
                         # Remove the JSON from content so we don't display it raw
                         content = content[:start].strip()
                         message["content"] = content
-                    else:
-                        malformed_tool_call = True
+                    # else: valid JSON but not a tool call — don't retry
                 except Exception as e:
                     logger.warning("Fallback JSON parse error: %s", e)
                     malformed_tool_call = True
@@ -368,7 +376,7 @@ def run_agent_loop(
         # Append assistant message to history
         history.append(message)
 
-        _RETRY_MARKER = "[RETRY]"
+        _RETRY_MARKER = "__INTERNAL_RETRY_REQUEST__"
         if malformed_tool_call:
             console.print("[dim]⚠️  Geçersiz JSON araç çağrısı, tekrar isteniyor...[/]")
             if config.audit_enabled:
